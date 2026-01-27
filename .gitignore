@@ -1,0 +1,5 @@
+node_modules/
+dist_electron/
+build/
+dist/
+src-tauri/target/
