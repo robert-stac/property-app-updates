@@ -6,35 +6,24 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
-      // 'autoUpdate' is also an option, but 'prompt' is better for your users
-      workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
-        // THIS IS THE KEY FOR OFFLINE:
-        runtimeCaching: [
-          {
-            urlPattern: ({ request }) => request.destination === 'document',
-            handler: 'NetworkFirst', // Tries network, but falls back to cache immediately if offline
-          },
-          {
-            urlPattern: ({ request }) => 
-              request.destination === 'script' || 
-              request.destination === 'style' || 
-              request.destination === 'image',
-            handler: 'StaleWhileRevalidate', // Serves from cache instantly, updates in background
-          },
-        ],
-      },
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
         name: 'Buwembo Property Management',
-        short_name: 'BuwemboApp',
-        theme_color: '#1d4ed8',
-        background_color: '#ffffff',
-        display: 'standalone', // Makes it look like a real app
+        short_name: 'BuwemboMgmt',
+        description: 'Professional Property Management System for Buwembo & Co. Advocates',
+        theme_color: '#1d4ed8', // A professional blue
         icons: [
-          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' }
+          {
+            src: 'pwa-192x192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png'
+          }
         ]
       }
     })

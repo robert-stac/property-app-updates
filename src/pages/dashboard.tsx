@@ -30,25 +30,27 @@ const SystemStatus: React.FC = () => {
   };
 
   return (
-    <div className="bg-white rounded-[2.5rem] p-6 border border-gray-100 shadow-sm">
+    <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${needRefresh ? 'bg-orange-500 animate-pulse' : 'bg-green-500'}`} />
-          <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">v{packageInfo.version}-Stable</span>
+          <div className={`w-2 h-2 rounded-full ${needRefresh ? 'bg-orange-500 animate-pulse' : 'bg-green-500'}`} />
+          <span className="text-xs font-medium text-gray-500">Version {packageInfo.version} Stable</span>
         </div>
-        {needRefresh ? <AlertCircle size={14} className="text-orange-500" /> : <ShieldCheck size={14} className="text-green-500" />}
+        {needRefresh ? <AlertCircle size={16} className="text-orange-500" /> : <ShieldCheck size={16} className="text-green-500" />}
       </div>
-      <div className={`flex items-center gap-3 p-3 rounded-xl mb-4 border ${isBackupOverdue() ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
-        <Database size={16} className={isBackupOverdue() ? 'text-red-500' : 'text-gray-400'} />
-        <div className="leading-tight">
-          <p className="text-[9px] font-black text-gray-400 uppercase">Last Backup</p>
-          <p className={`text-[10px] font-bold ${isBackupOverdue() ? 'text-red-600' : 'text-gray-700'}`}>
-            {lastBackup ? new Date(lastBackup).toLocaleDateString() : 'Action Required'}
+      
+      <div className={`flex items-center gap-3 p-4 rounded-xl mb-4 border ${isBackupOverdue() ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
+        <Database size={18} className={isBackupOverdue() ? 'text-red-500' : 'text-gray-400'} />
+        <div>
+          <p className="text-xs text-gray-500 font-medium">Last system backup</p>
+          <p className={`text-sm font-semibold ${isBackupOverdue() ? 'text-red-700' : 'text-gray-900'}`}>
+            {lastBackup ? new Date(lastBackup).toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'Backup Required'}
           </p>
         </div>
       </div>
-      <button onClick={() => navigate('/system')} className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${needRefresh ? 'bg-orange-500 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white'}`}>
-        <RefreshCcw size={12} className={needRefresh ? 'animate-spin' : ''} />
+
+      <button onClick={() => navigate('/system')} className={`w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold transition-all ${needRefresh ? 'bg-orange-500 text-white shadow-md' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
+        <RefreshCcw size={16} className={needRefresh ? 'animate-spin' : ''} />
         {needRefresh ? 'Update Available' : 'System Settings'}
       </button>
     </div>
@@ -138,56 +140,60 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="w-full space-y-10 pb-12">
+    <div className="w-full max-w-7xl mx-auto space-y-8 pb-12 text-left">
       {/* Page Title */}
-      <div className="px-2">
-        <h1 className="text-4xl font-black text-gray-900 uppercase tracking-tight">Dashboard</h1>
-        <p className="text-gray-500 font-bold uppercase tracking-widest text-xs mt-1">Property Management Overview</p>
+      <div className="px-1">
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+        <p className="text-gray-500 text-sm mt-1">Overview of your property management system</p>
       </div>
 
       {/* Top Banner Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
-        <StatCard icon={<Building2 size={28}/>} label="Total Units" value={stats.totalProperties} color="blue" />
-        <StatCard icon={<Users size={28}/>} label="Active Tenants" value={stats.activeTenants} color="green" />
-        <StatCard icon={<TrendingUp size={28}/>} label="Gross Revenue" value={formatUgx(stats.totalRevenue)} color="purple" />
-        <StatCard icon={<AlertCircle size={28}/>} label="Total Arrears" value={formatUgx(stats.totalBalance)} color="red" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <StatCard icon={<Building2 size={24}/>} label="Total Units" value={stats.totalProperties} color="blue" />
+        <StatCard icon={<Users size={24}/>} label="Active Tenants" value={stats.activeTenants} color="green" />
+        <StatCard icon={<TrendingUp size={24}/>} label="Gross Revenue" value={formatUgx(stats.totalRevenue)} color="purple" />
+        <StatCard icon={<AlertCircle size={24}/>} label="Total Arrears" value={formatUgx(stats.totalBalance)} color="red" />
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-10">
-        <div className="xl:col-span-2 space-y-10">
+      <div className="flex flex-col xl:flex-row gap-8">
+        <div className="flex-1 min-w-0 space-y-8">
           
           {/* Overdue Table */}
-          <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-8 border-b border-gray-50 flex justify-between items-center bg-red-50/30">
-              <h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter">
-                <Clock className="text-red-600" /> Overdue Rentals
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                <Clock className="text-red-600" size={18} /> Overdue Payments
               </h3>
-              <span className="bg-red-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase">Action Required</span>
+              {overdueTenants.length > 0 && (
+                <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-semibold">
+                  Action Required
+                </span>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 text-gray-400 text-[10px] uppercase font-black tracking-widest">
+                <thead className="bg-gray-50 text-gray-500 text-xs font-medium">
                   <tr>
-                    <th className="p-6 text-left">Tenant</th>
-                    <th className="p-6 text-left">Property</th>
-                    <th className="p-6 text-center">Status</th>
-                    <th className="p-6 text-right">Balance</th>
+                    <th className="px-6 py-4 text-left font-semibold">Tenant Name</th>
+                    <th className="px-6 py-4 text-left font-semibold">Property Unit</th>
+                    <th className="px-6 py-4 text-center font-semibold">Status</th>
+                    <th className="px-6 py-4 text-right font-semibold">Balance Due</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-gray-100 text-sm">
                   {overdueTenants.length === 0 ? (
-                    <tr><td colSpan={4} className="p-16 text-center text-gray-400 font-bold italic uppercase">All accounts are settled</td></tr>
+                    <tr><td colSpan={4} className="p-12 text-center text-gray-400 font-medium">All accounts are settled</td></tr>
                   ) : (
                     overdueTenants.map(t => (
-                      <tr key={t.id} className="hover:bg-red-50/50 transition-colors group">
-                        <td className="p-6 font-black text-gray-800">{t.name}</td>
-                        <td className="p-6 text-sm text-gray-500 font-bold">{properties.find(p=>p.id===t.propertyId)?.name}</td>
-                        <td className="p-6 text-center">
-                          <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">
-                            {t.daysLate} Days Late
+                      <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-gray-900">{t.name}</td>
+                        <td className="px-6 py-4 text-gray-600">{properties.find(p=>p.id===t.propertyId)?.name}</td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            {t.daysLate} days late
                           </span>
                         </td>
-                        <td className="p-6 text-right font-black text-red-600 text-lg">{formatUgx(t.balance)}</td>
+                        <td className="px-6 py-4 text-right font-bold text-red-600">{formatUgx(t.balance)}</td>
                       </tr>
                     ))
                   )}
@@ -196,47 +202,39 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Recent Maintenance - Enhanced V2 Details */}
-          <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-8 border-b border-gray-50 flex justify-between items-center">
-              <h3 className="font-black text-gray-800 flex items-center gap-2 uppercase tracking-tighter">
-                <Hammer className="text-orange-500" /> Recent Maintenance
+          {/* Recent Maintenance */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                <Hammer className="text-orange-500" size={18} /> Recent Maintenance
               </h3>
             </div>
-            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
               {pendingRepairs.length === 0 ? (
-                <p className="col-span-2 text-center py-10 text-gray-300 font-black uppercase">No recent repairs</p>
+                <p className="col-span-2 text-center py-8 text-gray-400 text-sm">No recent repairs recorded</p>
               ) : (
                 pendingRepairs.map((r, i) => {
                   const property = properties.find(p => p.id === r.propertyId);
                   const allTenants = JSON.parse(localStorage.getItem("tenants") || "[]");
                   const tenant = allTenants.find((t: any) => t.propertyId === r.propertyId);
-
                   return (
-                    <div key={i} className="flex flex-col p-6 border-2 border-gray-50 rounded-3xl bg-gray-50/50 hover:border-orange-200 transition-all">
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="max-w-[70%]">
-                          <div className="font-black text-gray-800 uppercase text-sm leading-tight truncate">{r.issue}</div>
-                          <div className="text-[9px] text-gray-400 font-bold mt-1 tracking-widest">{r.date}</div>
-                        </div>
-                        <div className="text-right font-black text-blue-700 text-sm whitespace-nowrap">{formatUgx(r.cost)}</div>
+                    <div key={i} className="p-5 border border-gray-100 rounded-xl bg-gray-50/30 hover:bg-white hover:shadow-sm hover:border-gray-200 transition-all">
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-semibold text-gray-900 text-sm truncate pr-4">{r.issue}</h4>
+                        <span className="font-bold text-blue-600 text-sm whitespace-nowrap">{formatUgx(r.cost)}</span>
                       </div>
-
-                      <div className="space-y-1.5 py-3 border-t border-gray-100">
-                        <div className="flex items-center gap-2 text-gray-600 font-bold text-[10px]">
-                          <Building2 size={12} className="text-gray-400" />
-                          <span className="uppercase tracking-tight">{property?.name || "Global Asset"}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-gray-500 font-bold text-[10px]">
-                          <Users size={12} className="text-gray-400" />
-                          <span>Tenant: {tenant?.name || "N/A"}</span>
-                        </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+                        <Building2 size={12} className="text-gray-400"/>
+                        <span>{property?.name || "General Property"}</span>
+                        {tenant && (
+                          <>
+                            <span className="text-gray-300">•</span>
+                            <span className="text-gray-500">{tenant.name}</span>
+                          </>
+                        )}
                       </div>
-
                       {r.description && (
-                        <div className="mt-2 pt-2 border-t border-gray-100/50">
-                          <p className="text-[10px] text-gray-400 italic leading-snug line-clamp-2">"{r.description}"</p>
-                        </div>
+                         <p className="text-xs text-gray-400 italic mt-2 line-clamp-1">{r.description}</p>
                       )}
                     </div>
                   )
@@ -247,28 +245,29 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Right Sidebar */}
-        <div className="space-y-8">
-          <div className="bg-blue-700 p-10 rounded-[3rem] text-white shadow-2xl shadow-blue-200 relative overflow-hidden">
-             <ShieldCheck className="absolute top-[-20px] right-[-20px] text-white opacity-10" size={120} />
-             <h3 className="text-2xl font-black mb-4 flex items-center gap-3">System Safety</h3>
-             <p className="text-blue-100 text-sm mb-10 font-medium leading-relaxed">Ensure your data is safe. Download a local backup file weekly.</p>
-             <div className="space-y-4">
-                <button onClick={handleExport} className="w-full bg-white text-blue-700 py-5 rounded-2xl font-black hover:scale-[1.02] active:scale-95 transition-all shadow-xl flex items-center justify-center gap-3 uppercase text-xs tracking-widest">
-                  <Download size={20} /> Download Backup
+        <div className="w-full xl:w-80 space-y-6">
+          <div className="bg-blue-600 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
+             <ShieldCheck className="absolute top-[-10px] right-[-10px] text-white opacity-10" size={100} />
+             <h3 className="text-lg font-bold mb-2">Data Safety</h3>
+             <p className="text-blue-100 text-sm mb-6 leading-relaxed">Ensure your property data is safe. Download a local backup file weekly.</p>
+             <div className="grid grid-cols-2 gap-3">
+                <button onClick={handleExport} className="bg-white text-blue-700 py-3 rounded-lg font-semibold text-xs flex flex-col items-center justify-center gap-1 hover:bg-blue-50 transition-colors">
+                  <Download size={16} /> 
+                  <span>Backup</span>
                 </button>
-                <label className="w-full border-2 border-blue-400 text-white py-5 rounded-2xl font-black hover:bg-blue-600 transition-all flex items-center justify-center gap-3 cursor-pointer uppercase text-xs tracking-widest">
-                  <Upload size={20} /> Restore Data
+                <label className="border border-blue-400 bg-blue-700 text-white py-3 rounded-lg font-semibold text-xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-blue-800 transition-colors">
+                  <Upload size={16} /> 
+                  <span>Restore</span>
                   <input type="file" accept=".json" onChange={handleImport} className="hidden" />
                 </label>
              </div>
           </div>
 
-          <div className="bg-gray-900 p-10 rounded-[3rem] text-white relative overflow-hidden group">
-            <TrendingUp className="absolute bottom-[-30px] right-[-30px] text-green-400 opacity-5 group-hover:opacity-10 transition-opacity" size={180} />
-            <p className="text-gray-400 text-xs font-black uppercase tracking-[0.2em] mb-2">Net Cash Flow</p>
-            <p className="text-4xl font-black text-green-400 tracking-tighter">{formatUgx(stats.totalRevenue - stats.totalRepairs)}</p>
-            <div className="mt-4 h-1 w-full bg-gray-800 rounded-full overflow-hidden">
-                <div className="h-full bg-green-400 w-3/4"></div>
+          <div className="bg-gray-900 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
+            <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-2">Net Cash Flow</p>
+            <p className="text-3xl font-bold text-emerald-400 tracking-tight">{formatUgx(stats.totalRevenue - stats.totalRepairs)}</p>
+            <div className="mt-4 h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 w-3/4 rounded-full"></div>
             </div>
           </div>
 
@@ -279,20 +278,24 @@ const Dashboard: React.FC = () => {
   );
 };
 
+// Reusable Professional Card Component
 const StatCard = ({ icon, label, value, color }: any) => {
-  const themes: any = {
-    blue: "bg-blue-50 text-blue-600 border-blue-100",
-    green: "bg-green-50 text-green-600 border-green-100",
-    purple: "bg-purple-50 text-purple-600 border-purple-100",
-    red: "bg-red-50 text-red-600 border-red-200 animate-pulse-subtle"
+  const colors: any = {
+    blue: "text-blue-600 bg-blue-50 border-blue-100",
+    green: "text-emerald-600 bg-emerald-50 border-emerald-100",
+    purple: "text-purple-600 bg-purple-50 border-purple-100",
+    red: "text-red-600 bg-red-50 border-red-100"
   };
+  
   return (
-    <div className={`bg-white p-8 rounded-[2.5rem] border shadow-sm transition-all hover:shadow-md ${themes[color]}`}>
-      <div className="mb-6">{icon}</div>
-      <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">{label}</p>
-      <p className={`text-2xl xl:text-3xl font-black tracking-tighter ${color === 'red' ? 'text-red-600' : 'text-gray-800'}`}>
-        {value}
-      </p>
+    <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between h-full transition-all hover:shadow-md">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${colors[color]}`}>
+        {icon}
+      </div>
+      <div>
+        <p className="text-gray-500 text-xs font-medium uppercase tracking-wide mb-1">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 tracking-tight">{value}</p>
+      </div>
     </div>
   );
 };

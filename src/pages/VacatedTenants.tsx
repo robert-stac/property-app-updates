@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { useCurrency } from "../context/CurrencyContext";
-import { RotateCcw, Printer, FileDown, Search, History, Users } from "lucide-react";
+import { 
+  RotateCcw, 
+  Printer, 
+  FileDown, 
+  Search, 
+  History, 
+  Users, 
+  Building2, 
+  CalendarDays,
+  ArrowLeft
+} from "lucide-react";
 
 interface VacatedTenant {
   id: string;
@@ -40,12 +50,10 @@ const VacatedTenants: React.FC = () => {
     const updatedVacated = vacated.filter((t) => t.id !== id);
     setVacated(updatedVacated);
     localStorage.setItem("vacatedTenants", JSON.stringify(updatedVacated));
-    
-    alert(`${tenantToRestore.name} has been restored.`);
   };
 
   const exportCSV = () => {
-    const header = ["Name", "Property", "Amount Paid", "Balance (UGX)", "Vacated Date"];
+    const header = ["Name", "Property", "Amount Paid (UGX)", "Balance (UGX)", "Vacated Date"];
     const rows = filtered.map(t => [
       t.name,
       properties.find(p => p.id === t.propertyId)?.name || "N/A",
@@ -57,7 +65,7 @@ const VacatedTenants: React.FC = () => {
     const blob = new Blob([content], { type: "text/csv" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Vacated_Tenants_${new Date().toLocaleDateString()}.csv`;
+    link.download = `Vacated_Tenants_Archive_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
 
@@ -71,63 +79,64 @@ const VacatedTenants: React.FC = () => {
   });
 
   return (
-    // "w-full px-0" ensures it touches the edges if the parent allows it
-    <div className="w-full space-y-6 pb-12 min-h-screen">
+    <div className="w-full max-w-7xl mx-auto space-y-8 pb-12">
       
-      {/* Header Section - Wide Layout */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 print:hidden px-4">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 print:hidden">
         <div>
-          <h1 className="text-4xl font-black text-gray-800 flex items-center gap-3">
-            <History className="text-blue-600" size={38} />
-            VACATED TENANTS
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+            Vacated Tenants Archive
           </h1>
-          <p className="text-gray-500 font-bold uppercase tracking-widest text-xs mt-1">
-            Historical Archive • {vacated.length} Total Records
-          </p>
+          <p className="text-gray-500 text-sm mt-1 font-medium">Historical records and final account balances</p>
         </div>
 
-        <div className="flex flex-wrap gap-3 w-full xl:w-auto">
-          <div className="relative flex-grow xl:w-96 group">
+        <div className="flex flex-wrap gap-3 w-full md:w-auto">
+          <div className="relative flex-grow md:w-80 group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors" size={18} />
             <input
               type="text"
-              placeholder="Search by tenant name or property..."
+              placeholder="Search history..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-4 pl-12 rounded-2xl border-2 border-gray-200 bg-white shadow-sm focus:border-blue-600 outline-none font-bold transition-all"
+              className="w-full py-2.5 pl-10 pr-4 rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-medium transition-all"
             />
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600" size={20} />
           </div>
           
-          <button onClick={() => window.print()} className="bg-white border-2 border-gray-200 px-6 py-4 rounded-2xl hover:bg-gray-50 shadow-sm transition-all text-gray-700 font-black flex items-center gap-2">
-            <Printer size={20} /> PRINT
+          <button onClick={() => window.print()} className="bg-white border border-gray-200 px-4 py-2.5 rounded-lg hover:bg-gray-50 text-gray-700 font-semibold text-sm flex items-center gap-2 transition-all">
+            <Printer size={16} /> Print
           </button>
           
-          <button onClick={exportCSV} className="bg-green-600 text-white px-8 py-4 rounded-2xl hover:bg-green-700 shadow-lg transition-all font-black flex items-center gap-2">
-            <FileDown size={20} /> EXPORT CSV
+          <button onClick={exportCSV} className="bg-emerald-600 text-white px-4 py-2.5 rounded-lg hover:bg-emerald-700 shadow-sm font-semibold text-sm flex items-center gap-2 transition-all">
+            <FileDown size={16} /> Export CSV
           </button>
         </div>
       </div>
 
-      {/* Full-Width Table Container */}
-      <div className="bg-white shadow-xl border-y md:border-x border-gray-100 md:rounded-[2rem] overflow-hidden w-full">
+      {/* Main Content Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden w-full">
+        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+           <h3 className="font-bold text-gray-800 text-sm">Historical Ledger</h3>
+           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{filtered.length} Archived Records</span>
+        </div>
+        
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-900 text-gray-400 text-[11px] font-black uppercase tracking-[0.2em] border-b border-gray-800">
-                <th className="p-8 text-left">Tenant Information</th>
-                <th className="p-8 text-right">Rent Paid (UGX)</th>
-                <th className="p-8 text-right">Final Balance</th>
-                <th className="p-8 text-center">Date Vacated</th>
-                <th className="p-8 text-center print:hidden">Actions</th>
+              <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                <th className="px-6 py-4">Tenant & Previous Unit</th>
+                <th className="px-6 py-4 text-right">Total Paid</th>
+                <th className="px-6 py-4 text-right">Final Balance</th>
+                <th className="px-6 py-4 text-center">Departure Date</th>
+                <th className="px-6 py-4 text-center print:hidden">Reinstatement</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-32 text-center">
-                    <div className="opacity-20 flex flex-col items-center">
-                        <Users size={80} />
-                        <p className="mt-4 font-black text-xl uppercase tracking-widest">No Records Found</p>
+                  <td colSpan={5} className="px-6 py-20 text-center">
+                    <div className="flex flex-col items-center opacity-30">
+                        <Users size={48} />
+                        <p className="mt-4 font-bold text-gray-500">No vacated records found</p>
                     </div>
                   </td>
                 </tr>
@@ -135,40 +144,40 @@ const VacatedTenants: React.FC = () => {
                 filtered.map((t) => {
                   const property = properties.find(p => p.id === t.propertyId);
                   return (
-                    <tr key={t.id} className="hover:bg-blue-50/50 transition-all group">
-                      <td className="p-8">
-                        <div className="font-black text-gray-900 text-xl uppercase tracking-tight group-hover:text-blue-700 transition-colors">
-                            {t.name}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-black uppercase">
-                                {property?.name || "No Property"}
+                    <tr key={t.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-gray-900 text-sm">{t.name}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-blue-600 font-bold flex items-center gap-1">
+                                <Building2 size={10}/> {property?.name || "Unit Not Found"}
                             </span>
-                            <span className="text-[10px] text-gray-400 font-bold">ID: {t.id.slice(0,8)}</span>
                         </div>
                       </td>
-                      <td className="p-8 text-right font-black text-gray-600">
-                        {formatUgx(t.amountPaid)}
+                      <td className="px-6 py-4 text-right">
+                        <div className="font-semibold text-gray-700 text-sm">{formatUgx(t.amountPaid)}</div>
+                        <div className="text-[10px] text-gray-400 font-medium uppercase">{formatUsd(convertToUsd(t.amountPaid))}</div>
                       </td>
-                      <td className="p-8 text-right">
-                        <div className={`font-black text-xl ${t.balance > 0 ? "text-red-600" : "text-green-600"}`}>
-                          {formatUgx(t.balance)}
+                      <td className="px-6 py-4 text-right">
+                        <div className={`font-bold text-sm ${t.balance > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                          {t.balance > 0 ? `-${formatUgx(t.balance)}` : "Settled"}
                         </div>
-                        <div className="text-[10px] text-gray-400 font-black uppercase">
+                        {t.balance > 0 && (
+                          <div className="text-[10px] text-red-400 font-medium">
                             {formatUsd(convertToUsd(t.balance))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full text-[10px] font-bold text-gray-600 uppercase">
+                           <CalendarDays size={10}/> {t.vacatedDate}
                         </div>
                       </td>
-                      <td className="p-8 text-center font-bold text-gray-500">
-                        <div className="bg-gray-100 inline-block px-4 py-2 rounded-lg text-sm">
-                            {t.vacatedDate}
-                        </div>
-                      </td>
-                      <td className="p-8 text-center print:hidden">
+                      <td className="px-6 py-4 text-center print:hidden">
                         <button 
                           onClick={() => handleRestore(t.id)} 
-                          className="bg-gray-900 text-white px-6 py-3 rounded-xl hover:bg-blue-600 transition-all font-black text-xs uppercase tracking-tighter flex items-center gap-2 mx-auto shadow-md"
+                          className="inline-flex items-center gap-2 px-4 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-blue-600 transition-all text-[10px] font-bold uppercase tracking-tight shadow-sm"
                         >
-                          <RotateCcw size={14} /> Restore Tenant
+                          <RotateCcw size={12} /> Restore
                         </button>
                       </td>
                     </tr>
@@ -180,14 +189,16 @@ const VacatedTenants: React.FC = () => {
         </div>
       </div>
 
-      {/* Print Optimization */}
+      {/* Printing Styles */}
       <style>{`
         @media print {
-          body { background: white !important; }
-          .min-h-screen { padding: 0 !important; }
-          .bg-white { border: none !important; }
-          table { font-size: 12px; }
-          th { background-color: #000 !important; color: white !important; -webkit-print-color-adjust: exact; }
+          body { background: white !important; font-size: 10pt; }
+          .max-w-7xl { max-width: 100% !important; margin: 0 !important; }
+          .shadow-sm { box-shadow: none !important; }
+          .rounded-2xl { border-radius: 4px !important; }
+          .bg-gray-50 { background-color: #f9fafb !important; -webkit-print-color-adjust: exact; }
+          .print\\:hidden { display: none !important; }
+          th { border-bottom: 2px solid #000 !important; }
         }
       `}</style>
     </div>

@@ -1,12 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { useCurrency } from "../context/CurrencyContext";
-import { FileText, Printer, TrendingDown, PieChart, Calendar, FileType } from "lucide-react";
+import { 
+  FileText, 
+  Printer, 
+  TrendingDown, 
+  PieChart, 
+  Calendar, 
+  FileDown, 
+  ArrowUpRight, 
+  ArrowDownRight, 
+  Wallet,
+  Building2,
+  Filter
+} from "lucide-react";
 
 const Reports: React.FC = () => {
-  // Only pulling formatUgx and convertToUsd/formatUsd to satisfy the UI usage
   const { formatUgx, formatUsd, convertToUsd } = useCurrency();
+  const [selectedProperty, setSelectedProperty] = useState<string>("all");
 
-  // FIX: Explicitly typing the state so TypeScript doesn't assume the arrays are 'never'
   const [reportData, setReportData] = useState<{
     tenants: any[];
     properties: any[];
@@ -34,158 +45,197 @@ const Reports: React.FC = () => {
       .map((t: any) => {
         const dueDate = new Date(t.nextPaymentDate);
         const diffDays = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        const property = storedProperties.find(
-          (p: any) => p.id?.toString() === t.propertyId?.toString()
-        );
-
+        const property = storedProperties.find((p: any) => p.id?.toString() === t.propertyId?.toString());
         return { 
           ...t, 
           daysLate: diffDays, 
-          propertyName: property ? property.name : "Unassigned Property" 
+          propertyName: property ? property.name : "Unassigned Unit" 
         };
       })
-      // FIX: Parameters a and b explicitly typed as 'any'
       .sort((a: any, b: any) => b.daysLate - a.daysLate);
 
-    setReportData({ 
-      tenants: storedTenants, 
-      properties: storedProperties, 
-      repairs: storedRepairs, 
-      overdueSummary: overdue 
-    });
+    setReportData({ tenants: storedTenants, properties: storedProperties, repairs: storedRepairs, overdueSummary: overdue });
   }, []);
 
-  const totalRevenue = reportData.tenants.reduce((acc, t: any) => acc + Number(t.amountPaid || 0), 0);
-  const totalArrears = reportData.tenants.reduce((acc, t: any) => acc + Number(t.balance || 0), 0);
-  const totalRepairs = reportData.repairs.reduce((acc, r: any) => acc + Number(r.cost || 0), 0);
+  // Filter Logic
+  const filteredTenants = selectedProperty === "all" 
+    ? reportData.tenants 
+    : reportData.tenants.filter(t => t.propertyId?.toString() === selectedProperty);
+
+  const filteredRepairs = selectedProperty === "all" 
+    ? reportData.repairs 
+    : reportData.repairs.filter(r => r.propertyId?.toString() === selectedProperty);
+
+  const filteredOverdue = selectedProperty === "all" 
+    ? reportData.overdueSummary 
+    : reportData.overdueSummary.filter(t => t.propertyId?.toString() === selectedProperty);
+
+  const totalRevenue = filteredTenants.reduce((acc, t: any) => acc + Number(t.amountPaid || 0), 0);
+  const totalArrears = filteredTenants.reduce((acc, t: any) => acc + Number(t.balance || 0), 0);
+  const totalRepairs = filteredRepairs.reduce((acc, r: any) => acc + Number(r.cost || 0), 0);
+  const netPosition = totalRevenue - totalRepairs;
+
+  const exportCSV = () => {
+    const propertyName = selectedProperty === "all" ? "Full Portfolio" : reportData.properties.find(p => p.id?.toString() === selectedProperty)?.name;
+    
+    const sections = [
+      [`FINANCIAL REPORT: ${propertyName?.toUpperCase()}`],
+      ["Generated", new Date().toLocaleString()],
+      [""],
+      ["Metric", "Value (UGX)"],
+      ["Total Collected", totalRevenue],
+      ["Total Arrears", totalArrears],
+      ["Repairs Outlay", totalRepairs],
+      ["Net Cash Position", netPosition],
+      [""],
+      ["ARREARS RISK TRACKING"],
+      ["Tenant Name", "Days Overdue", "Balance Due (UGX)"],
+      ...filteredOverdue.map(t => [t.name, t.daysLate, t.balance]),
+      [""],
+      ["MAINTENANCE LOG"],
+      ["Issue", "Cost (UGX)"],
+      ...filteredRepairs.map(r => [r.issue, r.cost])
+    ];
+
+    const content = sections.map(e => e.join(",")).join("\n");
+    const blob = new Blob([content], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${propertyName?.replace(/\s+/g, '_')}_Report.csv`;
+    link.click();
+  };
 
   return (
-    <div className="w-full px-4 md:px-10 py-6 space-y-10">
-      {/* Report Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center print:hidden bg-white p-8 rounded-3xl shadow-sm border border-gray-100 gap-4">
-        <div>
-          <h1 className="text-4xl font-black text-gray-900 flex items-center gap-3">
-            <FileText className="text-blue-700" size={40} /> Portfolio Financial Report
-          </h1>
-          <p className="text-gray-500 font-bold text-lg">Buwembo & Co. Advocates Management System</p>
+    <div className="w-full max-w-7xl mx-auto space-y-8 pb-12">
+      
+      {/* Header with Property Filter */}
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-200 gap-6 print:hidden">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+            <Building2 size={24} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Property Analytics</h1>
+            <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">Buwembo & Co. Management</p>
+          </div>
         </div>
-        <div className="flex gap-4">
-          <button 
-            onClick={() => window.print()}
-            className="bg-red-600 text-white px-8 py-4 rounded-2xl font-black hover:bg-red-700 transition flex items-center gap-2 shadow-xl uppercase tracking-widest text-sm"
-          >
-            <FileType size={20} /> Export to PDF
+
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+          <div className="relative flex-grow md:w-64">
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <select 
+              value={selectedProperty}
+              onChange={(e) => setSelectedProperty(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-semibold text-gray-700 outline-none focus:ring-2 focus:ring-blue-100 transition-all appearance-none"
+            >
+              <option value="all">All Properties</option>
+              {reportData.properties.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          
+          <button onClick={() => window.print()} className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-all">
+            <Printer size={16} /> Print
           </button>
-          <button 
-            onClick={() => window.print()}
-            className="bg-gray-800 text-white px-8 py-4 rounded-2xl font-black hover:bg-black transition flex items-center gap-2 shadow-xl uppercase tracking-widest text-sm"
-          >
-            <Printer size={20} /> Print
+          
+          <button onClick={exportCSV} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 shadow-sm transition-all">
+            <FileDown size={16} /> Export CSV
           </button>
         </div>
       </div>
 
-      {/* Financial Totals */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-200 shadow-sm">
-          <p className="text-gray-400 text-xs font-black uppercase mb-2 tracking-widest">Total Collected</p>
-          <p className="text-3xl font-black text-green-600">{formatUgx(totalRevenue)}</p>
+      {/* Financial Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><ArrowUpRight size={20}/></span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Revenue</span>
+          </div>
+          <div className="text-xl font-bold text-gray-900">{formatUgx(totalRevenue)}</div>
+          <div className="text-[10px] font-bold text-emerald-600 mt-1">{formatUsd(convertToUsd(totalRevenue))}</div>
         </div>
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-200 shadow-sm">
-          <p className="text-gray-400 text-xs font-black uppercase mb-2 tracking-widest">Total Arrears</p>
-          <p className="text-3xl font-black text-red-600">{formatUgx(totalArrears)}</p>
+
+        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-2 bg-red-50 text-red-600 rounded-lg"><ArrowDownRight size={20}/></span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Arrears</span>
+          </div>
+          <div className="text-xl font-bold text-gray-900">{formatUgx(totalArrears)}</div>
+          <div className="text-[10px] font-bold text-red-600 mt-1">{formatUsd(convertToUsd(totalArrears))}</div>
         </div>
-        <div className="bg-white p-8 rounded-[2rem] border border-gray-200 shadow-sm">
-          <p className="text-gray-400 text-xs font-black uppercase mb-2 tracking-widest">Repairs Outlay</p>
-          <p className="text-3xl font-black text-orange-600">{formatUgx(totalRepairs)}</p>
+
+        <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-2 bg-orange-50 text-orange-600 rounded-lg"><PieChart size={20}/></span>
+            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Repairs</span>
+          </div>
+          <div className="text-xl font-bold text-gray-900">{formatUgx(totalRepairs)}</div>
+          <div className="text-[10px] font-bold text-orange-600 mt-1">{formatUsd(convertToUsd(totalRepairs))}</div>
         </div>
-        <div className="bg-blue-800 p-8 rounded-[2rem] shadow-2xl text-white">
-          <p className="text-blue-200 text-xs font-black uppercase mb-2 tracking-widest">Net Cash Position</p>
-          <p className="text-3xl font-black">{formatUgx(totalRevenue - totalRepairs)}</p>
+
+        <div className="bg-blue-600 p-6 rounded-2xl shadow-lg text-white">
+          <div className="flex justify-between items-start mb-4">
+            <span className="p-2 bg-blue-500 text-white rounded-lg"><Wallet size={20}/></span>
+            <span className="text-[10px] font-bold text-blue-100 uppercase tracking-widest">Net Position</span>
+          </div>
+          <div className="text-xl font-bold">{formatUgx(netPosition)}</div>
+          <div className="text-[10px] font-bold text-blue-100 mt-1">{formatUsd(convertToUsd(netPosition))}</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-        {/* Arrears Risk Tracking Table */}
-        <div className="bg-white rounded-[2.5rem] border border-red-100 shadow-md overflow-hidden">
-          <div className="p-8 bg-red-50 border-b border-red-100 flex justify-between items-center">
-            <h3 className="font-black text-red-800 text-xl flex items-center gap-3">
-              <TrendingDown size={28} /> Arrears Risk Tracking
-            </h3>
-            <span className="bg-red-200 text-red-800 px-4 py-1 rounded-full font-black text-xs uppercase tracking-tighter">Aging Report</span>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        {/* Arrears List */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+            <h3 className="text-sm font-bold text-gray-800">Aging Arrears Table</h3>
           </div>
-          <table className="w-full">
-            <thead className="bg-gray-50 text-[11px] text-gray-500 font-black uppercase border-b">
-              <tr>
-                <th className="p-6 text-left">Tenant Name</th>
-                <th className="p-6 text-left">Property</th>
-                <th className="p-6 text-center">Days Overdue</th>
-                <th className="p-6 text-right">Balance Due</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {reportData.overdueSummary.length > 0 ? reportData.overdueSummary.map((t: any) => (
-                <tr key={t.id} className="hover:bg-red-50/30 transition">
-                  <td className="p-6 font-black text-gray-800">{t.name}</td>
-                  <td className="p-6">
-                    <span className="text-xs font-black text-gray-400 uppercase bg-gray-100 px-2 py-1 rounded">
-                      {t.propertyName}
-                    </span>
-                  </td>
-                  <td className="p-6 text-center">
-                    <span className={`px-4 py-1 rounded-full text-xs font-black ${t.daysLate > 30 ? 'bg-red-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
-                      {t.daysLate} Days
-                    </span>
-                  </td>
-                  <td className="p-6 text-right font-black text-gray-900">
-                    <div className="text-red-600">{formatUgx(t.balance)}</div>
-                    <div className="text-[10px] text-gray-400 font-bold">{formatUsd(convertToUsd(t.balance))}</div>
-                  </td>
-                </tr>
-              )) : (
-                <tr><td colSpan={4} className="p-10 text-center text-gray-400 italic font-bold">Excellent: All accounts are cleared!</td></tr>
-              )}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <tbody className="divide-y divide-gray-100">
+                {filteredOverdue.length > 0 ? filteredOverdue.map((t: any) => (
+                  <tr key={t.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="font-bold text-gray-900">{t.name}</div>
+                      {selectedProperty === "all" && <div className="text-[10px] text-gray-400 font-bold uppercase">{t.propertyName}</div>}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-bold ${t.daysLate > 30 ? 'bg-red-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
+                        {t.daysLate} Days
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right font-bold text-red-600">
+                      {formatUgx(t.balance)}
+                    </td>
+                  </tr>
+                )) : (
+                  <tr><td className="px-6 py-10 text-center text-gray-400 italic text-sm">No arrears found for this selection.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Repairs Summary */}
-        <div className="bg-white rounded-[2.5rem] border border-gray-200 shadow-md overflow-hidden">
-          <div className="p-8 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-            <h3 className="font-black text-gray-800 text-xl flex items-center gap-3">
-              <PieChart size={28} className="text-blue-600" /> Recent Repairs Impact
-            </h3>
+        {/* Repair Impact */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+            <h3 className="text-sm font-bold text-gray-800">Recent Maintenance Costs</h3>
           </div>
-          <div className="p-8 space-y-6">
-            {reportData.repairs.slice(-5).reverse().map((r: any, idx) => (
-              <div key={idx} className="flex justify-between items-center p-6 bg-gray-50 rounded-3xl border border-gray-100">
-                <div className="flex items-center gap-4">
-                  <div className="bg-blue-600 p-3 rounded-2xl text-white"><Calendar size={20} /></div>
-                  <div>
-                    <p className="font-black text-gray-800 text-lg leading-tight">{r.description}</p>
-                    <p className="text-xs text-blue-600 font-bold uppercase mt-1">
-                      {reportData.properties.find((p: any) => p.id?.toString() === r.propertyId?.toString())?.name || 'Property N/A'}
-                    </p>
-                  </div>
+          <div className="p-6 space-y-4">
+            {filteredRepairs.length > 0 ? filteredRepairs.slice(-5).reverse().map((r: any, idx) => (
+              <div key={idx} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">{r.issue}</p>
+                  <p className="text-[10px] text-blue-600 font-bold uppercase">{reportData.properties.find(p => p.id === r.propertyId)?.name}</p>
                 </div>
-                <p className="font-black text-gray-900 text-xl">{formatUgx(r.cost)}</p>
+                <div className="text-right font-bold text-gray-900 text-sm">{formatUgx(r.cost)}</div>
               </div>
-            ))}
+            )) : (
+                <div className="py-10 text-center text-gray-400 italic text-sm">No repair records found.</div>
+            )}
           </div>
         </div>
       </div>
-
-      <style>{`
-        @media print {
-          body { background: white !important; }
-          .px-4, .md\\:px-10 { padding: 0 !important; }
-          .rounded-3xl, .rounded-\\[2\\.5rem\\], .rounded-\\[2rem\\] { border-radius: 4px !important; border: 1px solid #eee !important; }
-          .shadow-sm, .shadow-md, .shadow-xl, .shadow-2xl { box-shadow: none !important; }
-          .bg-blue-800 { background-color: #1e40af !important; color: white !important; -webkit-print-color-adjust: exact; }
-          .print\\:hidden { display: none !important; }
-        }
-      `}</style>
     </div>
   );
 };

@@ -1,6 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { useCurrency } from "../context/CurrencyContext";
-import { Wrench, Plus, Search, Trash2, Edit3, AlertCircle } from "lucide-react";
+import { 
+  Wrench, 
+  Plus, 
+  Search, 
+  Trash2, 
+  Edit3, 
+  AlertCircle, 
+  Building2, 
+  Clock, 
+  FileText,
+  CheckCircle2,
+  Hammer
+} from "lucide-react";
 
 interface Property {
   id: string;
@@ -47,21 +59,21 @@ const Repairs: React.FC = () => {
     localStorage.setItem("repairs", JSON.stringify(data));
   };
 
-  const handleCostChange = (ugxValue: number) => {
-    setFormData({ ...formData, cost: ugxValue });
-    setUsdCost((ugxValue / rate).toFixed(2));
+  // Dual Currency Sync Logic
+  const handleUgxChange = (val: number) => {
+    setFormData({ ...formData, cost: val });
+    setUsdCost((val / rate).toFixed(2));
   };
 
-  const handleUsdChange = (usdValue: number) => {
-    setUsdCost(usdValue.toString());
-    setFormData({ ...formData, cost: Math.round(usdValue * rate) });
+  const handleUsdChange = (val: number) => {
+    setUsdCost(val.toString());
+    setFormData({ ...formData, cost: Math.round(val * rate) });
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      const updated = repairs.map((r) => (r.id === editingId ? { ...r, ...formData } : r));
-      persistRepairs(updated);
+      persistRepairs(repairs.map((r) => (r.id === editingId ? { ...r, ...formData } : r)));
       setEditingId(null);
     } else {
       persistRepairs([...repairs, { id: crypto.randomUUID(), ...formData }]);
@@ -71,7 +83,7 @@ const Repairs: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("Delete this repair record?")) {
+    if (window.confirm("Permanentally delete this maintenance record?")) {
       persistRepairs(repairs.filter((r) => r.id !== id));
     }
   };
@@ -83,186 +95,206 @@ const Repairs: React.FC = () => {
   });
 
   return (
-    <div className="w-full space-y-8 pb-12 min-h-screen">
+    <div className="w-full max-w-7xl mx-auto space-y-8 pb-12">
       
-      {/* Header Section */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 px-2">
+      {/* Header & Search */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h1 className="text-4xl font-black text-gray-900 flex items-center gap-3 uppercase">
-            <Wrench className="text-blue-700" size={40} />
-            Maintenance & Repairs
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
+            Repairs & Maintenance
           </h1>
-          <p className="text-gray-500 font-bold uppercase tracking-widest text-xs mt-1">
-            Global Repair Log • {repairs.length} Total Records
-          </p>
+          <p className="text-gray-500 text-sm mt-1">Track property upkeep and service costs</p>
         </div>
-
-        <div className="relative w-full xl:w-96 group">
+        
+        <div className="relative w-full md:w-80 group">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors" size={18} />
           <input
             type="text"
-            placeholder="Search by property or issue..."
+            placeholder="Search by issue or property..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-4 pl-12 rounded-2xl border-2 border-transparent bg-white shadow-sm focus:border-blue-600 outline-none font-bold transition-all"
+            className="w-full py-2.5 pl-10 pr-4 rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-medium transition-all"
           />
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600" size={20} />
         </div>
       </div>
 
-      {/* Form Section - Wide Layout */}
-      <form onSubmit={handleSubmit} className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100 w-full">
-        <div className="flex items-center gap-3 mb-8">
-            <div className={`p-2 rounded-lg ${editingId ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
-                {editingId ? <Edit3 size={24} /> : <Plus size={24} />}
+      {/* Modernized Entry Form */}
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+            <div className={`p-2 rounded-lg ${editingId ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
+                {editingId ? <Edit3 size={20}/> : <Plus size={20}/>}
             </div>
-            <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tight">
-                {editingId ? "Edit Maintenance Record" : "Log New Repair Request"}
+            <h2 className="text-lg font-bold text-gray-900">
+            {editingId ? "Update Maintenance Record" : "Log New Repair Task"}
             </h2>
         </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Target Property</label>
-            <select 
-              value={formData.propertyId} 
-              onChange={(e) => setFormData({...formData, propertyId: e.target.value})}
-              className="w-full border-2 border-gray-100 p-4 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold transition-all"
-              required
-            >
-              <option value="">Select property</option>
-              {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+                <Building2 size={14} className="text-gray-400"/> Property
+              </label>
+              <select 
+                value={formData.propertyId} 
+                onChange={(e) => setFormData({...formData, propertyId: e.target.value})}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:border-blue-500 outline-none" 
+                required
+              >
+                <option value="">Select a unit...</option>
+                {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+                <Wrench size={14} className="text-gray-400"/> Issue Summary
+              </label>
+              <input 
+                type="text" 
+                value={formData.issue} 
+                onChange={(e) => setFormData({...formData, issue: e.target.value})}
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none" 
+                placeholder="e.g., Plumbing Leak"
+                required 
+              />
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Issue / Item</label>
-            <input 
-              type="text" 
-              value={formData.issue} 
-              onChange={(e) => setFormData({...formData, issue: e.target.value})}
-              className="w-full border-2 border-gray-100 p-4 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold transition-all"
-              placeholder="e.g., Leaking Roof"
-              required
-            />
-          </div>
-
-          <div className="space-y-2 xl:col-span-1">
-             <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Estimated Cost (UGX / USD)</label>
-             <div className="grid grid-cols-2 gap-2">
-                <input 
-                  type="number" 
-                  value={formData.cost || ""} 
-                  onChange={(e) => handleCostChange(Number(e.target.value))}
-                  className="p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold" 
-                  placeholder="UGX" 
-                />
-                <input 
-                  type="number" 
-                  value={usdCost === "0" ? "" : usdCost} 
-                  onChange={(e) => handleUsdChange(Number(e.target.value))}
-                  className="p-4 border-2 border-gray-100 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold" 
-                  placeholder="USD" 
-                />
-             </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Current Status</label>
+          <div className="space-y-4">
+            <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+              <Clock size={14} className="text-gray-400"/> Status & Date
+            </label>
             <select 
               value={formData.status} 
               onChange={(e) => setFormData({...formData, status: e.target.value as any})}
-              className="w-full border-2 border-gray-100 p-4 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold transition-all"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:border-blue-500 outline-none"
             >
               <option value="Pending">Pending Review</option>
               <option value="In Progress">In Progress</option>
-              <option value="Completed">Work Completed</option>
+              <option value="Completed">Completed</option>
             </select>
-          </div>
-
-          <div className="md:col-span-2 xl:col-span-3 space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Work Description & Notes</label>
-            <textarea 
-              value={formData.description} 
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              className="w-full border-2 border-gray-100 p-4 rounded-2xl bg-gray-50 outline-none focus:border-blue-600 font-bold transition-all"
-              rows={1}
-              placeholder="Provide more context about the repair..."
+            <input 
+              type="date" 
+              value={formData.date} 
+              onChange={(e) => setFormData({...formData, date: e.target.value})}
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 focus:border-blue-500 outline-none" 
             />
           </div>
 
-          <div className="xl:pt-8">
-            <button type="submit" className="w-full bg-blue-700 text-white py-4 rounded-2xl font-black hover:bg-green-600 transition shadow-lg shadow-blue-100 uppercase tracking-widest text-sm">
-              {editingId ? "Update Record" : "Save Record"}
-            </button>
+          <div className="space-y-4 lg:col-span-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div>
+                  <label className="block text-xs font-medium text-blue-700 mb-1.5">Estimated Cost (UGX)</label>
+                  <input 
+                    type="number" 
+                    value={formData.cost || ""} 
+                    onChange={(e) => handleUgxChange(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 border border-blue-200 bg-blue-50/30 rounded-lg text-sm font-semibold focus:border-blue-500 outline-none" 
+                    placeholder="0" 
+                  />
+               </div>
+               <div>
+                  <label className="block text-xs font-medium text-green-700 mb-1.5">Estimated Cost (USD)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={usdCost === "0" ? "" : usdCost} 
+                    onChange={(e) => handleUsdChange(Number(e.target.value))}
+                    className="w-full px-4 py-2.5 border border-green-200 bg-green-50/30 rounded-lg text-sm font-semibold focus:border-green-500 outline-none" 
+                    placeholder="0.00" 
+                  />
+               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5 flex items-center gap-1.5">
+                <FileText size={14} className="text-gray-400"/> Description / Notes
+              </label>
+              <textarea 
+                value={formData.description} 
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-blue-500 outline-none resize-none" 
+                rows={1}
+                placeholder="Optional details..."
+              />
+            </div>
           </div>
+        </div>
+
+        <div className="mt-8 pt-4 border-t border-gray-100 flex gap-3">
+          <button type="submit" className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm transition-all shadow-sm">
+            {editingId ? "Update Record" : "Save Record"}
+          </button>
+          {editingId && (
+            <button 
+              type="button" 
+              onClick={() => { setEditingId(null); setFormData({ propertyId: "", issue: "", description: "", cost: 0, status: "Pending", date: new Date().toISOString().split("T")[0] }); setUsdCost("0"); }}
+              className="px-6 py-2.5 border border-gray-300 rounded-lg text-sm font-medium"
+            >
+              Cancel
+            </button>
+          )}
         </div>
       </form>
 
-      {/* Table Section - Stretch to fill */}
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden w-full">
+      {/* Repairs Directory */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
+           <h3 className="font-bold text-gray-800 text-sm">Maintenance Log</h3>
+           <span className="text-xs text-gray-400 font-medium">{filtered.length} entries found</span>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] border-b border-gray-100">
-                <th className="p-8 text-left">Property & Issue Details</th>
-                <th className="p-8 text-center">Work Status</th>
-                <th className="p-8 text-right">Estimated Cost</th>
-                <th className="p-8 text-center">Actions</th>
+              <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-4">Issue Details</th>
+                <th className="px-6 py-4 text-center">Status</th>
+                <th className="px-6 py-4 text-right">Costing</th>
+                <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-24 text-center">
-                    <AlertCircle size={48} className="mx-auto text-gray-200 mb-4" />
-                    <p className="text-gray-400 font-black uppercase tracking-widest text-sm">No maintenance records found</p>
+                  <td colSpan={4} className="px-6 py-12 text-center text-gray-400 italic">
+                    <AlertCircle size={32} className="mx-auto mb-2 opacity-20"/>
+                    No records matching your search.
                   </td>
                 </tr>
               ) : (
                 filtered.map((r) => {
                   const property = properties.find(p => p.id === r.propertyId);
                   return (
-                    <tr key={r.id} className="hover:bg-blue-50/30 transition-all group">
-                      <td className="p-8">
-                        <div className="font-black text-gray-900 text-xl uppercase tracking-tight">{r.issue}</div>
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-black uppercase tracking-wider">
-                                {property?.name || "Unlinked Property"}
-                            </span>
-                            <span className="text-[10px] text-gray-400 font-bold">{r.date}</span>
+                    <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-semibold text-gray-900 text-sm">{r.issue}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-blue-600 font-medium flex items-center gap-1"><Building2 size={10}/> {property?.name}</span>
+                            <span className="text-[10px] text-gray-400">• {r.date}</span>
                         </div>
-                        {r.description && <p className="text-gray-500 text-sm mt-2 italic">"{r.description}"</p>}
+                        {r.description && <div className="text-xs text-gray-400 mt-1 italic truncate max-w-xs">"{r.description}"</div>}
                       </td>
-                      <td className="p-8 text-center">
-                        <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${
-                          r.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-100' : 
-                          r.status === 'In Progress' ? 'bg-orange-50 text-orange-700 border-orange-100' : 'bg-red-50 text-red-700 border-red-100'
+                      <td className="px-6 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                          r.status === 'Completed' ? 'bg-emerald-100 text-emerald-700' : 
+                          r.status === 'In Progress' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
                         }`}>
+                          {r.status === 'Completed' && <CheckCircle2 size={10}/>}
+                          {r.status === 'In Progress' && <Hammer size={10}/>}
                           {r.status}
                         </span>
                       </td>
-                      <td className="p-8 text-right">
-                        <div className="font-black text-gray-900 text-lg">{formatUgx(r.cost)}</div>
-                        <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
-                            {formatUsd(convertToUsd(r.cost))}
-                        </div>
+                      <td className="px-6 py-4 text-right">
+                        <div className="font-bold text-gray-900 text-sm">{formatUgx(r.cost)}</div>
+                        <div className="text-[10px] text-gray-400 font-medium">{formatUsd(convertToUsd(r.cost))}</div>
                       </td>
-                      <td className="p-8 text-center">
-                        <div className="flex justify-center gap-2">
-                            <button 
-                                onClick={() => { setEditingId(r.id); setFormData({...r}); setUsdCost((r.cost/rate).toFixed(2)); window.scrollTo({top: 0, behavior: 'smooth'}); }} 
-                                className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-sm"
-                                title="Edit Record"
-                            >
-                                <Edit3 size={18} />
-                            </button>
-                            <button 
-                                onClick={() => handleDelete(r.id)} 
-                                className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all shadow-sm"
-                                title="Delete Record"
-                            >
-                                <Trash2 size={18} />
-                            </button>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-1">
+                          <button onClick={() => { setEditingId(r.id); setFormData({...r}); setUsdCost((r.cost/rate).toFixed(2)); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+                            <Edit3 size={16}/>
+                          </button>
+                          <button onClick={() => handleDelete(r.id)} className="p-2 text-gray-400 hover:text-red-600 transition-colors">
+                            <Trash2 size={16}/>
+                          </button>
                         </div>
                       </td>
                     </tr>
