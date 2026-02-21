@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useCurrency } from "../context/CurrencyContext";
 import { Building2, Search, Home, MapPin, Users, Edit3, Trash2, PlusCircle, XCircle } from "lucide-react";
+// --- FIREBASE IMPORTS ---
+import { db } from "../firebase";
+import { 
+  collection, onSnapshot, addDoc, updateDoc, 
+  deleteDoc, doc, query, serverTimestamp 
+} from "firebase/firestore";
 
 interface Property {
   id: string;
@@ -17,13 +23,12 @@ interface Tenant {
 }
 
 const Properties: React.FC = () => {
-  const { formatUgx, formatUsd, convertToUsd, rate } = useCurrency();
+  const { formatUgx, currency, exchangeRate } = useCurrency();
   const [properties, setProperties] = useState<Property[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // Form State
   const [formData, setFormData] = useState<Omit<Property, "id">>({
     name: "",
     location: "",
@@ -33,47 +38,84 @@ const Properties: React.FC = () => {
   
   const [usdDisplay, setUsdDisplay] = useState<string>("0");
 
+  // --- REAL-TIME FIREBASE SYNC ---
   useEffect(() => {
-    const storedProperties = JSON.parse(localStorage.getItem("properties") || "[]");
-    const storedTenants = JSON.parse(localStorage.getItem("tenants") || "[]");
-    setProperties(storedProperties);
-    setTenants(storedTenants);
+    // Listen for Properties
+    const unsubscribeProps = onSnapshot(collection(db, "properties"), (snapshot) => {
+      const propList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Property[];
+      setProperties(propList);
+    });
+
+    // Listen for Tenants (to handle the "Access Denied" deletion logic)
+    const unsubscribeTenants = onSnapshot(collection(db, "tenants"), (snapshot) => {
+      const tenantList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Tenant[];
+      setTenants(tenantList);
+    });
+
+    return () => {
+      unsubscribeProps();
+      unsubscribeTenants();
+    };
   }, []);
 
-  const persistProperties = (data: Property[]) => {
-    setProperties(data);
-    localStorage.setItem("properties", JSON.stringify(data));
+  const getAltCurrency = (amount: number) => {
+    const rate = exchangeRate || 3800; 
+    if (currency === "UGX") {
+      return `USD $${(amount / rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else {
+      return `UGX ${(amount * rate).toLocaleString()}`;
+    }
   };
 
   const handleUgxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const ugxValue = Number(e.target.value);
+    const rate = exchangeRate || 3800;
     setFormData({ ...formData, price: ugxValue });
     setUsdDisplay((ugxValue / rate).toFixed(2));
   };
 
   const handleUsdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const usdValue = Number(e.target.value);
+    const rate = exchangeRate || 3800;
     setUsdDisplay(e.target.value);
     setFormData({ ...formData, price: Math.round(usdValue * rate) });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // --- CLOUD SUBMIT LOGIC ---
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      const updated = properties.map((p) =>
-        p.id === editingId ? { ...p, ...formData } : p
-      );
-      persistProperties(updated);
-      setEditingId(null);
-    } else {
-      const newProperty: Property = { id: crypto.randomUUID(), ...formData };
-      persistProperties([...properties, newProperty]);
+    try {
+      if (editingId) {
+        // Update Firestore Document
+        const propRef = doc(db, "properties", editingId);
+        await updateDoc(propRef, {
+          ...formData,
+          updatedAt: serverTimestamp()
+        });
+        setEditingId(null);
+      } else {
+        // Create new Firestore Document
+        await addDoc(collection(db, "properties"), {
+          ...formData,
+          createdAt: serverTimestamp()
+        });
+      }
+      setFormData({ name: "", location: "", price: 0, description: "" });
+      setUsdDisplay("0");
+    } catch (err) {
+      console.error("Firebase Error:", err);
+      alert("Failed to save property to the cloud.");
     }
-    setFormData({ name: "", location: "", price: 0, description: "" });
-    setUsdDisplay("0");
   };
 
   const handleEdit = (property: Property) => {
+    const rate = exchangeRate || 3800;
     setEditingId(property.id);
     setFormData({
       name: property.name,
@@ -85,14 +127,20 @@ const Properties: React.FC = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleDelete = (id: string) => {
+  // --- CLOUD DELETE LOGIC ---
+  const handleDelete = async (id: string) => {
     const activeTenants = tenants.filter((t) => t.propertyId === id);
     if (activeTenants.length > 0) {
       alert(`Access Denied: Cannot delete. This property has ${activeTenants.length} active tenant(s).`);
       return;
     }
-    if (!window.confirm("Are you sure you want to permanently delete this property?")) return;
-    persistProperties(properties.filter((p) => p.id !== id));
+    if (!window.confirm("Are you sure you want to permanently delete this property? This will sync for all users.")) return;
+    
+    try {
+      await deleteDoc(doc(db, "properties", id));
+    } catch (err) {
+      alert("Error deleting property from cloud.");
+    }
   };
 
   const getTenantCount = (propertyId: string) => tenants.filter((t) => t.propertyId === propertyId).length;
@@ -105,6 +153,7 @@ const Properties: React.FC = () => {
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-8 pb-12">
+      {/* ... ALL YOUR UI COMPONENTS REMAIN UNCHANGED ... */}
       
       {/* Header & Search */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -196,7 +245,7 @@ const Properties: React.FC = () => {
         </div>
 
         <div className="flex gap-3 mt-6">
-          <button className={`px-6 py-2.5 rounded-lg font-semibold shadow-sm text-sm transition-all flex items-center gap-2 ${editingId ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+          <button type="submit" className={`px-6 py-2.5 rounded-lg font-semibold shadow-sm text-sm transition-all flex items-center gap-2 ${editingId ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
             {editingId ? "Save Changes" : "Create Property"}
           </button>
           {editingId && (
@@ -257,7 +306,9 @@ const Properties: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                         <div className="font-bold text-gray-900 text-sm">{formatUgx(p.price)}</div>
-                        <div className="text-xs text-gray-500 font-medium">{formatUsd(convertToUsd(p.price))}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase">
+                           {getAltCurrency(p.price)}
+                        </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">

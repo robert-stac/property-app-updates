@@ -13,6 +13,12 @@ import {
   CheckCircle2,
   Hammer
 } from "lucide-react";
+// --- FIREBASE IMPORTS ---
+import { db } from "../firebase";
+import { 
+  collection, onSnapshot, addDoc, updateDoc, 
+  deleteDoc, doc, serverTimestamp 
+} from "firebase/firestore";
 
 interface Property {
   id: string;
@@ -30,7 +36,7 @@ interface Repair {
 }
 
 const Repairs: React.FC = () => {
-  const { formatUgx, formatUsd, convertToUsd, rate } = useCurrency();
+  const { formatUgx, currency, exchangeRate } = useCurrency();
   const [properties, setProperties] = useState<Property[]>([]);
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -47,44 +53,86 @@ const Repairs: React.FC = () => {
 
   const [usdCost, setUsdCost] = useState<string>("0");
 
+  // --- REAL-TIME FIREBASE SYNC ---
   useEffect(() => {
-    const storedProperties = JSON.parse(localStorage.getItem("properties") || "[]");
-    const storedRepairs = JSON.parse(localStorage.getItem("repairs") || "[]");
-    setProperties(storedProperties);
-    setRepairs(storedRepairs);
+    // Listen for Properties (to populate the dropdown)
+    const unsubscribeProps = onSnapshot(collection(db, "properties"), (snapshot) => {
+      const propList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name
+      })) as Property[];
+      setProperties(propList);
+    });
+
+    // Listen for Repairs
+    const unsubscribeRepairs = onSnapshot(collection(db, "repairs"), (snapshot) => {
+      const repairList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Repair[];
+      setRepairs(repairList);
+    });
+
+    return () => {
+      unsubscribeProps();
+      unsubscribeRepairs();
+    };
   }, []);
 
-  const persistRepairs = (data: Repair[]) => {
-    setRepairs(data);
-    localStorage.setItem("repairs", JSON.stringify(data));
+  // Helper for table display
+  const getAltCurrency = (amount: number) => {
+    const rate = exchangeRate || 3800; 
+    if (currency === "UGX") {
+      return `USD $${(amount / rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else {
+      return `UGX ${(amount * rate).toLocaleString()}`;
+    }
   };
 
   // Dual Currency Sync Logic
   const handleUgxChange = (val: number) => {
     setFormData({ ...formData, cost: val });
-    setUsdCost((val / rate).toFixed(2));
+    setUsdCost((val / (exchangeRate || 3800)).toFixed(2));
   };
 
   const handleUsdChange = (val: number) => {
     setUsdCost(val.toString());
-    setFormData({ ...formData, cost: Math.round(val * rate) });
+    setFormData({ ...formData, cost: Math.round(val * (exchangeRate || 3800)) });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // --- CLOUD SUBMIT LOGIC ---
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingId) {
-      persistRepairs(repairs.map((r) => (r.id === editingId ? { ...r, ...formData } : r)));
-      setEditingId(null);
-    } else {
-      persistRepairs([...repairs, { id: crypto.randomUUID(), ...formData }]);
+    try {
+      if (editingId) {
+        const repairRef = doc(db, "repairs", editingId);
+        await updateDoc(repairRef, {
+          ...formData,
+          updatedAt: serverTimestamp()
+        });
+        setEditingId(null);
+      } else {
+        await addDoc(collection(db, "repairs"), {
+          ...formData,
+          createdAt: serverTimestamp()
+        });
+      }
+      setFormData({ propertyId: "", issue: "", description: "", cost: 0, status: "Pending", date: new Date().toISOString().split("T")[0] });
+      setUsdCost("0");
+    } catch (err) {
+      console.error("Firebase Error:", err);
+      alert("Failed to save the repair record to the cloud.");
     }
-    setFormData({ propertyId: "", issue: "", description: "", cost: 0, status: "Pending", date: new Date().toISOString().split("T")[0] });
-    setUsdCost("0");
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Permanentally delete this maintenance record?")) {
-      persistRepairs(repairs.filter((r) => r.id !== id));
+  // --- CLOUD DELETE LOGIC ---
+  const handleDelete = async (id: string) => {
+    if (window.confirm("Permanently delete this maintenance record? This will sync for all users.")) {
+      try {
+        await deleteDoc(doc(db, "repairs", id));
+      } catch (err) {
+        alert("Error deleting record from cloud.");
+      }
     }
   };
 
@@ -118,7 +166,7 @@ const Repairs: React.FC = () => {
         </div>
       </div>
 
-      {/* Modernized Entry Form */}
+      {/* Entry Form */}
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
             <div className={`p-2 rounded-lg ${editingId ? 'bg-orange-50 text-orange-600' : 'bg-blue-50 text-blue-600'}`}>
@@ -268,7 +316,7 @@ const Repairs: React.FC = () => {
                       <td className="px-6 py-4">
                         <div className="font-semibold text-gray-900 text-sm">{r.issue}</div>
                         <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-blue-600 font-medium flex items-center gap-1"><Building2 size={10}/> {property?.name}</span>
+                            <span className="text-[10px] text-blue-600 font-medium flex items-center gap-1"><Building2 size={10}/> {property?.name || "Unknown Property"}</span>
                             <span className="text-[10px] text-gray-400">• {r.date}</span>
                         </div>
                         {r.description && <div className="text-xs text-gray-400 mt-1 italic truncate max-w-xs">"{r.description}"</div>}
@@ -285,11 +333,18 @@ const Repairs: React.FC = () => {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="font-bold text-gray-900 text-sm">{formatUgx(r.cost)}</div>
-                        <div className="text-[10px] text-gray-400 font-medium">{formatUsd(convertToUsd(r.cost))}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase">
+                          {getAltCurrency(r.cost)}
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-1">
-                          <button onClick={() => { setEditingId(r.id); setFormData({...r}); setUsdCost((r.cost/rate).toFixed(2)); window.scrollTo({top: 0, behavior: 'smooth'}); }} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+                          <button onClick={() => { 
+                            setEditingId(r.id); 
+                            setFormData({...r}); 
+                            setUsdCost((r.cost / (exchangeRate || 3800)).toFixed(2)); 
+                            window.scrollTo({top: 0, behavior: 'smooth'}); 
+                          }} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
                             <Edit3 size={16}/>
                           </button>
                           <button onClick={() => handleDelete(r.id)} className="p-2 text-gray-400 hover:text-red-600 transition-colors">

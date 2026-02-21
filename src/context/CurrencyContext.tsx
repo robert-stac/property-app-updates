@@ -1,27 +1,27 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 interface CurrencyContextType {
-  rate: number; // 1 USD = X UGX
+  exchangeRate: number; // renamed to match your Tenants.tsx usage
+  currency: "UGX" | "USD";
   loading: boolean;
-  convertToUsd: (ugx: number) => number;
-  formatUsd: (amount: number) => string;
+  toggleCurrency: () => void;
   formatUgx: (amount: number) => string;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [rate, setRate] = useState<number>(3700); // Fallback default
+  const [exchangeRate, setExchangeRate] = useState<number>(3700); 
+  const [currency, setCurrency] = useState<"UGX" | "USD">("UGX");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch live rate from free API
     const fetchRate = async () => {
       try {
         const res = await fetch('https://open.er-api.com/v6/latest/USD');
         const data = await res.json();
         if (data.rates && data.rates.UGX) {
-          setRate(data.rates.UGX);
+          setExchangeRate(data.rates.UGX);
         }
       } catch (error) {
         console.error("Failed to fetch exchange rate, using fallback.", error);
@@ -32,16 +32,32 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     fetchRate();
   }, []);
 
-  const convertToUsd = (ugx: number) => ugx / rate;
+  const toggleCurrency = () => {
+    setCurrency(prev => prev === "UGX" ? "USD" : "UGX");
+  };
 
-  const formatUsd = (amount: number) => 
-    new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
-
-  const formatUgx = (amount: number) => 
-    new Intl.NumberFormat('en-UG', { style: 'currency', currency: 'UGX', maximumFractionDigits: 0 }).format(amount);
+  // This is the fix! We force "UGX" or "$" labels manually.
+  const formatUgx = (amount: number) => {
+    if (currency === "UGX") {
+      // Manual string prefixing removes the "Ush" browser default
+      return `UGX ${Math.floor(amount).toLocaleString()}`;
+    } else {
+      return new Intl.NumberFormat('en-US', { 
+        style: 'currency', 
+        currency: 'USD',
+        minimumFractionDigits: 2 
+      }).format(amount);
+    }
+  };
 
   return (
-    <CurrencyContext.Provider value={{ rate, loading, convertToUsd, formatUsd, formatUgx }}>
+    <CurrencyContext.Provider value={{ 
+      exchangeRate, 
+      currency, 
+      loading, 
+      toggleCurrency, 
+      formatUgx 
+    }}>
       {children}
     </CurrencyContext.Provider>
   );

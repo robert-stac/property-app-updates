@@ -5,12 +5,20 @@ import {
   Printer, 
   FileDown, 
   Search, 
-  History, 
   Users, 
   Building2, 
-  CalendarDays,
-  ArrowLeft
+  CalendarDays
 } from "lucide-react";
+// --- FIREBASE IMPORTS ---
+import { db } from "../firebase";
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  addDoc, 
+  deleteDoc, 
+  serverTimestamp 
+} from "firebase/firestore";
 
 interface VacatedTenant {
   id: string;
@@ -22,50 +30,93 @@ interface VacatedTenant {
   nextPaymentDate: string;
   expiryDate: string;
   vacatedDate: string;
+  reason: string;
 }
 
 const VacatedTenants: React.FC = () => {
-  const { formatUgx, formatUsd, convertToUsd } = useCurrency();
+  const { formatUgx, currency, exchangeRate } = useCurrency();
   const [vacated, setVacated] = useState<VacatedTenant[]>([]);
   const [properties, setProperties] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // --- REAL-TIME CLOUD DATA ---
   useEffect(() => {
-    const storedVacated = JSON.parse(localStorage.getItem("vacatedTenants") || "[]");
-    const storedProperties = JSON.parse(localStorage.getItem("properties") || "[]");
-    setVacated(storedVacated);
-    setProperties(storedProperties);
+    // Listen for Properties
+    const unsubscribeProps = onSnapshot(collection(db, "properties"), (snapshot) => {
+      const propList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setProperties(propList);
+    });
+
+    // Listen for Vacated Tenants
+    const unsubscribeVacated = onSnapshot(collection(db, "vacatedTenants"), (snapshot) => {
+      const vacatedList = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      })) as VacatedTenant[];
+      setVacated(vacatedList);
+    });
+
+    return () => {
+      unsubscribeProps();
+      unsubscribeVacated();
+    };
   }, []);
 
-  const handleRestore = (id: string) => {
+  const getAltCurrency = (amount: number) => {
+    const rate = exchangeRate || 3800; 
+    if (currency === "UGX") {
+      return `USD $${(amount / rate).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else {
+      return `UGX ${(amount * rate).toLocaleString()}`;
+    }
+  };
+
+  // --- CLOUD RESTORE LOGIC ---
+  const handleRestore = async (id: string) => {
     const tenantToRestore = vacated.find((t) => t.id === id);
     if (!tenantToRestore) return;
 
     if (!window.confirm(`Restore ${tenantToRestore.name} to active tenants?`)) return;
 
-    const activeTenants = JSON.parse(localStorage.getItem("tenants") || "[]");
-    const { vacatedDate, ...restoredData } = tenantToRestore as any;
-    localStorage.setItem("tenants", JSON.stringify([...activeTenants, restoredData]));
+    try {
+      // 1. Add back to active 'tenants' collection
+      await addDoc(collection(db, "tenants"), {
+        name: tenantToRestore.name,
+        contact: "", 
+        propertyId: tenantToRestore.propertyId,
+        rentAmount: tenantToRestore.rent,
+        lastAmountPaid: tenantToRestore.amountPaid,
+        balance: tenantToRestore.balance,
+        paidUntil: tenantToRestore.expiryDate || new Date().toISOString().split('T')[0],
+        rentFrequency: "Monthly",
+        paymentHistory: [],
+        restoredAt: serverTimestamp()
+      });
 
-    const updatedVacated = vacated.filter((t) => t.id !== id);
-    setVacated(updatedVacated);
-    localStorage.setItem("vacatedTenants", JSON.stringify(updatedVacated));
+      // 2. Remove from 'vacatedTenants' collection
+      await deleteDoc(doc(db, "vacatedTenants", id));
+
+    } catch (err) {
+      console.error("Restore failed:", err);
+      alert("Failed to restore tenant. Please check your connection.");
+    }
   };
 
   const exportCSV = () => {
-    const header = ["Name", "Property", "Amount Paid (UGX)", "Balance (UGX)", "Vacated Date"];
+    const header = ["Name", "Property", "Amount Paid (UGX)", "Balance (UGX)", "Reason", "Vacated Date"];
     const rows = filtered.map(t => [
       t.name,
       properties.find(p => p.id === t.propertyId)?.name || "N/A",
       t.amountPaid,
       t.balance,
+      t.reason || "N/A",
       t.vacatedDate
     ]);
     const content = [header, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([content], { type: "text/csv" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `Vacated_Tenants_Archive_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `Vacated_Archive_${new Date().toISOString().split('T')[0]}.csv`;
     link.click();
   };
 
@@ -74,14 +125,14 @@ const VacatedTenants: React.FC = () => {
     const searchStr = searchTerm.toLowerCase();
     return (
       t.name.toLowerCase().includes(searchStr) ||
-      (property?.name.toLowerCase().includes(searchStr) || "")
+      (property?.name.toLowerCase().includes(searchStr) || "") ||
+      (t.reason?.toLowerCase().includes(searchStr) || "")
     );
   });
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-8 pb-12">
       
-      {/* Header Section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 print:hidden">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
@@ -95,7 +146,7 @@ const VacatedTenants: React.FC = () => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-600 transition-colors" size={18} />
             <input
               type="text"
-              placeholder="Search history..."
+              placeholder="Search name, unit or reason..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full py-2.5 pl-10 pr-4 rounded-lg border border-gray-200 bg-white shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-medium transition-all"
@@ -112,7 +163,6 @@ const VacatedTenants: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Content Table */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden w-full">
         <div className="p-6 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
            <h3 className="font-bold text-gray-800 text-sm">Historical Ledger</h3>
@@ -126,6 +176,7 @@ const VacatedTenants: React.FC = () => {
                 <th className="px-6 py-4">Tenant & Previous Unit</th>
                 <th className="px-6 py-4 text-right">Total Paid</th>
                 <th className="px-6 py-4 text-right">Final Balance</th>
+                <th className="px-6 py-4 text-center">Reason</th>
                 <th className="px-6 py-4 text-center">Departure Date</th>
                 <th className="px-6 py-4 text-center print:hidden">Reinstatement</th>
               </tr>
@@ -133,7 +184,7 @@ const VacatedTenants: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
+                  <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center opacity-30">
                         <Users size={48} />
                         <p className="mt-4 font-bold text-gray-500">No vacated records found</p>
@@ -154,18 +205,23 @@ const VacatedTenants: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="font-semibold text-gray-700 text-sm">{formatUgx(t.amountPaid)}</div>
-                        <div className="text-[10px] text-gray-400 font-medium uppercase">{formatUsd(convertToUsd(t.amountPaid))}</div>
+                        <div className="font-semibold text-gray-900 text-sm">{formatUgx(t.amountPaid)}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">{getAltCurrency(t.amountPaid)}</div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className={`font-bold text-sm ${t.balance > 0 ? "text-red-600" : "text-emerald-600"}`}>
                           {t.balance > 0 ? `-${formatUgx(t.balance)}` : "Settled"}
                         </div>
                         {t.balance > 0 && (
-                          <div className="text-[10px] text-red-400 font-medium">
-                            {formatUsd(convertToUsd(t.balance))}
+                          <div className="text-[10px] text-red-400 font-bold uppercase tracking-tight">
+                            {getAltCurrency(t.balance)}
                           </div>
                         )}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg text-[10px] font-bold uppercase">
+                          {t.reason || "N/A"}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full text-[10px] font-bold text-gray-600 uppercase">
@@ -175,7 +231,7 @@ const VacatedTenants: React.FC = () => {
                       <td className="px-6 py-4 text-center print:hidden">
                         <button 
                           onClick={() => handleRestore(t.id)} 
-                          className="inline-flex items-center gap-2 px-4 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-blue-600 transition-all text-[10px] font-bold uppercase tracking-tight shadow-sm"
+                          className="inline-flex items-center gap-2 px-4 py-1.5 bg-gray-900 text-white rounded-lg hover:bg-blue-600 transition-all text-[10px] font-bold uppercase tracking-tight shadow-sm active:scale-95"
                         >
                           <RotateCcw size={12} /> Restore
                         </button>
@@ -189,7 +245,6 @@ const VacatedTenants: React.FC = () => {
         </div>
       </div>
 
-      {/* Printing Styles */}
       <style>{`
         @media print {
           body { background: white !important; font-size: 10pt; }
