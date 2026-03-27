@@ -108,7 +108,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <CurrencyProvider>
-        <Router basename="/property-app-updates">
+        <Router basename="/">
           <div className="min-h-screen bg-gray-50 font-sans antialiased">
             <AppContent />
           </div>
