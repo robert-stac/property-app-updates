@@ -6,6 +6,7 @@ import { getAnalytics, isSupported } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: "buwembo-property-app",
   storageBucket: "buwembo-property-app.firebasestorage.app",
   messagingSenderId: "549237684790",

@@ -89,12 +89,31 @@ const Tenants: React.FC = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const paidUntilDate = new Date(tenant.paidUntil);
-    
-    const isExpired = today >= paidUntilDate;
+    paidUntilDate.setHours(0, 0, 0, 0);
+
+    if (today < paidUntilDate) {
+      // Still within the paid period — only show any existing stored balance
+      return Number(tenant.balance || 0);
+    }
+
+    // How many months per cycle?
+    let monthsPerCycle = 1;
+    if (tenant.rentFrequency === "3 Months") monthsPerCycle = 3;
+    else if (tenant.rentFrequency === "6 Months") monthsPerCycle = 6;
+    else if (tenant.rentFrequency === "Yearly") monthsPerCycle = 12;
+
+    // Count how many full cycles (months) have elapsed since paidUntil
+    const yearDiff = today.getFullYear() - paidUntilDate.getFullYear();
+    const monthDiff = (yearDiff * 12) + (today.getMonth() - paidUntilDate.getMonth());
+    // Add 1 because the paidUntil month itself is now due
+    const overdueMonths = Math.max(1, monthDiff + 1);
+
+    const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
+    const accruedRent = overdueCycles * (Number(tenant.rentAmount) || 0);
+
+    // Add any pre-existing stored balance (partial payments etc.)
     const baseBalance = Number(tenant.balance || 0);
-    
-    // If the date is reached/passed, they owe their current balance PLUS the next rent cycle
-    return isExpired ? baseBalance + (Number(tenant.rentAmount) || 0) : baseBalance;
+    return accruedRent + baseBalance;
   };
 
   const getTenantStatus = (tenant: any) => {
@@ -202,9 +221,40 @@ const Tenants: React.FC = () => {
     const { tenant, amount } = paymentModal;
     if (!tenant || amount <= 0) return;
 
-    // We calculate based on the current system balance
-    const totalPaidThisPeriod = (tenant.lastAmountPaid || 0) + amount;
-    const newBalance = Math.max(0, (tenant.rentAmount || 0) - totalPaidThisPeriod);
+    // Total available for allocation (including what was already partially paid for the current cycle)
+    const totalAvailable = (Number(tenant.lastAmountPaid) || 0) + Number(amount);
+    const cycleAmount = Number(tenant.rentAmount) || 0;
+
+    if (cycleAmount <= 0) {
+      alert("Rent amount must be greater than 0");
+      return;
+    }
+
+    // How many full cycles does this payment cover?
+    const cyclesToAdvance = Math.floor(totalAvailable / cycleAmount);
+    const remainder = totalAvailable % cycleAmount;
+
+    let newPaidUntil = tenant.paidUntil;
+    let finalPaidTotal = totalAvailable; // Default if not advancing
+    let newBalance = Math.max(0, cycleAmount - totalAvailable);
+
+    if (cyclesToAdvance > 0) {
+      const date = new Date(tenant.paidUntil);
+      
+      // Determine months per cycle
+      let monthsPerCycle = 1;
+      if (tenant.rentFrequency === "3 Months") monthsPerCycle = 3;
+      else if (tenant.rentFrequency === "6 Months") monthsPerCycle = 6;
+      else if (tenant.rentFrequency === "Yearly") monthsPerCycle = 12;
+
+      // Advance the date by the number of cycles
+      date.setMonth(date.getMonth() + (cyclesToAdvance * monthsPerCycle));
+      newPaidUntil = date.toISOString().split('T')[0];
+      
+      // After advancing, the remainder is what has been "Paid So Far" for the NEXT cycle
+      finalPaidTotal = remainder;
+      newBalance = Math.max(0, cycleAmount - remainder);
+    }
 
     const newTransaction = {
         date: new Date().toLocaleString(),
@@ -212,20 +262,6 @@ const Tenants: React.FC = () => {
         currency: "UGX",
         altAmount: getAltCurrency(amount)
     };
-
-    let newPaidUntil = tenant.paidUntil;
-    let finalPaidTotal = totalPaidThisPeriod;
-
-    if (newBalance <= 0) {
-      const date = new Date(tenant.paidUntil);
-      if (tenant.rentFrequency === "3 Months") date.setMonth(date.getMonth() + 3);
-      else if (tenant.rentFrequency === "6 Months") date.setMonth(date.getMonth() + 6);
-      else if (tenant.rentFrequency === "Yearly") date.setFullYear(date.getFullYear() + 1);
-      else date.setMonth(date.getMonth() + 1);
-
-      newPaidUntil = date.toISOString().split('T')[0];
-      finalPaidTotal = 0; 
-    }
 
     try {
       await updateDoc(doc(db, "tenants", tenant.id), {

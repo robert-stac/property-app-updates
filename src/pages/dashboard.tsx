@@ -98,16 +98,29 @@ const Dashboard: React.FC = () => {
           // 1. Map tenants to include "Effective Arrears" based on PaidUntil date
           const processedTenants = tList.map((t: any) => {
             const paidUntilDate = new Date(t.paidUntil);
-            const isExpired = today >= paidUntilDate;
+            paidUntilDate.setHours(0, 0, 0, 0);
             const baseBalance = Number(t.balance || 0);
-            
-            // Logic: If date reached, arrears = current balance + rent amount
-            const effectiveArrears = isExpired ? baseBalance + (Number(t.rentAmount) || 0) : baseBalance;
 
+            let effectiveArrears = baseBalance;
             let daysLate = 0;
-            if (isExpired) {
-                const diffTime = Math.abs(today.getTime() - paidUntilDate.getTime());
-                daysLate = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (today >= paidUntilDate) {
+              // How many months per rent cycle?
+              let monthsPerCycle = 1;
+              if (t.rentFrequency === "3 Months") monthsPerCycle = 3;
+              else if (t.rentFrequency === "6 Months") monthsPerCycle = 6;
+              else if (t.rentFrequency === "Yearly") monthsPerCycle = 12;
+
+              // Count elapsed months since paidUntil (add 1 because that month is now due)
+              const yearDiff = today.getFullYear() - paidUntilDate.getFullYear();
+              const monthDiff = (yearDiff * 12) + (today.getMonth() - paidUntilDate.getMonth());
+              const overdueMonths = Math.max(1, monthDiff + 1);
+              const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
+
+              effectiveArrears = (overdueCycles * (Number(t.rentAmount) || 0)) + baseBalance;
+
+              const diffTime = Math.abs(today.getTime() - paidUntilDate.getTime());
+              daysLate = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             }
 
             return { ...t, effectiveArrears, daysLate };
