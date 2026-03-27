@@ -13,7 +13,7 @@ const Login: React.FC = () => {
     e.preventDefault();
     try {
       await login(email, password);
-      window.location.href = "/property-app-updates/"; 
+      window.location.href = "/"; 
     } catch (err: any) {
       setError("Invalid credentials. Please use your registered email and password.");
     }
