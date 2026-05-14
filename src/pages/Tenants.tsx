@@ -38,7 +38,8 @@ const Tenants: React.FC = () => {
     amount: number;
     description: string;
     applySurcharge: boolean;
-  }>({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false });
+    surchargeRate: number; // NEW
+  }>({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false, surchargeRate: 5 });
 
   const [newTenant, setNewTenant] = useState({
     id: "",
@@ -92,25 +93,60 @@ const Tenants: React.FC = () => {
     }
   };
 
-  // --- LEDGER-BASED ARREARS: cumulativeBalance is the single source of truth ---
-  // It is updated directly in Firebase whenever a charge is billed or a payment is received.
+  // --- HYBRID ARREARS: stored base + auto-accrued cycles ---
+  // cumulativeBalance = confirmed ledger base (payments/adjustments stored in Firebase)
+  // Auto-accrual = rent cycles that have elapsed since paidUntil (display-only, not stored)
+  const getMonthsPerCycle = (tenant: any) => {
+    if (tenant.rentFrequency === "3 Months") return 3;
+    if (tenant.rentFrequency === "6 Months") return 6;
+    if (tenant.rentFrequency === "Yearly") return 12;
+    return 1;
+  };
+
   const calculateEffectiveArrears = (tenant: any) => {
-    return Math.max(0, Number(tenant.cumulativeBalance ?? tenant.balance ?? 0));
+    const base = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const paidUntilDate = new Date(tenant.paidUntil);
+    paidUntilDate.setHours(0, 0, 0, 0);
+
+    if (today <= paidUntilDate) return Math.max(0, base);
+
+    // Count precisely how many cycle-start-dates have passed since paidUntil
+    const monthsPerCycle = getMonthsPerCycle(tenant);
+    let cyclesElapsed = 0;
+    const cursor = new Date(paidUntilDate);
+    while (cursor <= today) {
+      cyclesElapsed++;
+      cursor.setMonth(cursor.getMonth() + monthsPerCycle);
+    }
+
+    return Math.max(0, base + cyclesElapsed * Number(tenant.rentAmount || 0));
   };
 
   const getTenantStatus = (tenant: any) => {
     const effectiveArrears = calculateEffectiveArrears(tenant);
-    
-    if (effectiveArrears > 0) {
-      return { label: "ARREARS", color: "bg-red-100 text-red-700 border-red-200", icon: AlertCircle };
-    }
-
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const dueDate = new Date(tenant.paidUntil);
+    dueDate.setHours(0, 0, 0, 0);
     const diffTime = dueDate.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (diffDays <= 7) return { label: "DUE SOON", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Clock };
+    if (effectiveArrears > 0) {
+      // Has an outstanding balance — in arrears
+      return { label: "ARREARS", color: "bg-red-100 text-red-700 border-red-200", icon: AlertCircle };
+    }
+
+    if (today > dueDate) {
+      // Paid period has expired but no new charge billed yet — manager action needed
+      return { label: "UNBILLED", color: "bg-orange-100 text-orange-700 border-orange-200", icon: Clock };
+    }
+
+    // Paid period is current
+    if (diffDays > 0 && diffDays <= 7) {
+      return { label: "DUE SOON", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Clock };
+    }
     return { label: "ACTIVE", color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: CheckCircle };
   };
 
@@ -216,17 +252,36 @@ const Tenants: React.FC = () => {
     });
   };
 
-  // --- PROCESS PAYMENT: deduct from ledger balance ---
+  // --- PROCESS PAYMENT: lock in auto-accrued cycles then deduct ---
   const handleProcessPayment = async () => {
     const { tenant, amount } = paymentModal;
     if (!tenant || amount <= 0) return;
 
-    const currentBalance = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
-    const newBalance = Math.max(0, currentBalance - amount);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const paidUntilDate = new Date(tenant.paidUntil);
+    paidUntilDate.setHours(0, 0, 0, 0);
+    const monthsPerCycle = getMonthsPerCycle(tenant);
+
+    // Advance cursor past today to find the next future cycle start
+    let cyclesElapsed = 0;
+    const cursor = new Date(paidUntilDate);
+    while (cursor <= today) {
+      cyclesElapsed++;
+      cursor.setMonth(cursor.getMonth() + monthsPerCycle);
+    }
+    // cursor is now the first FUTURE cycle-start date — set as new paidUntil
+    // so that auto-accrual resets and doesn't double-count these cycles next time
+    const newPaidUntil = cursor.toISOString().split('T')[0];
+
+    const base = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
+    const autoAccrued = cyclesElapsed * Number(tenant.rentAmount || 0);
+    const lockedBalance = base + autoAccrued; // full confirmed debt
+    const newBalance = Math.max(0, lockedBalance - amount);
 
     const newTransaction = {
       date: new Date().toLocaleString(),
-      amount: amount,
+      amount,
       type: "payment",
       currency: "UGX",
       altAmount: getAltCurrency(amount)
@@ -237,6 +292,7 @@ const Tenants: React.FC = () => {
         cumulativeBalance: newBalance,
         balance: newBalance,
         lastAmountPaid: amount,
+        paidUntil: newPaidUntil,
         paymentHistory: [newTransaction, ...(tenant.paymentHistory || [])],
         updatedAt: serverTimestamp()
       });
@@ -246,35 +302,48 @@ const Tenants: React.FC = () => {
     }
   };
 
-  // --- ADD CHARGE: bill rent quarter or surcharge ---
+  // --- PROCESS CHARGE (Rent + Optional Custom Surcharge) ---
   const handleAddCharge = async () => {
-    const { tenant, amount, description, applySurcharge } = chargeModal;
-    if (!tenant || amount <= 0) return;
+    const { tenant, amount, description, applySurcharge, surchargeRate } = chargeModal;
+    if (!tenant || amount < 0) return;
 
     const currentBalance = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
-    const surchargeAmount = applySurcharge ? Math.round(currentBalance * 0.05) : 0;
+    const surchargeAmount = applySurcharge ? Math.round(currentBalance * (surchargeRate / 100)) : 0;
     const totalCharge = amount + surchargeAmount;
     const newBalance = currentBalance + totalCharge;
 
-    const chargeEntry = {
-      date: new Date().toLocaleString(),
-      amount: totalCharge,
-      rentCharge: amount,
-      surcharge: surchargeAmount,
-      description: description || "Rent Charge",
-      type: "charge",
-      currency: "UGX",
-      altAmount: getAltCurrency(totalCharge)
-    };
+    const newTransactions = [];
+    if (amount > 0) {
+      newTransactions.push({
+        date: new Date().toLocaleString(),
+        amount: amount,
+        type: "charge",
+        description: description || "Rent Charge",
+        currency: "UGX",
+        altAmount: getAltCurrency(amount)
+      });
+    }
+    if (surchargeAmount > 0) {
+      newTransactions.push({
+        date: new Date().toLocaleString(),
+        amount: surchargeAmount,
+        type: "charge",
+        description: `${surchargeRate}% Surcharge`,
+        currency: "UGX",
+        altAmount: getAltCurrency(surchargeAmount)
+      });
+    }
+
+    if (newTransactions.length === 0) return;
 
     try {
       await updateDoc(doc(db, "tenants", tenant.id), {
         cumulativeBalance: newBalance,
         balance: newBalance,
-        paymentHistory: [chargeEntry, ...(tenant.paymentHistory || [])],
+        paymentHistory: [...newTransactions, ...(tenant.paymentHistory || [])],
         updatedAt: serverTimestamp()
       });
-      setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false });
+      setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false, surchargeRate: 5 });
     } catch (err) {
       alert("Charge failed: " + err);
     }
@@ -422,7 +491,7 @@ const Tenants: React.FC = () => {
       {/* BILL NEW CHARGE MODAL */}
       {chargeModal.show && chargeModal.tenant && (() => {
         const currentBalance = Number(chargeModal.tenant.cumulativeBalance ?? chargeModal.tenant.balance ?? 0);
-        const surchargeAmount = chargeModal.applySurcharge ? Math.round(currentBalance * 0.05) : 0;
+        const surchargeAmount = chargeModal.applySurcharge ? Math.round(currentBalance * (chargeModal.surchargeRate / 100)) : 0;
         const totalCharge = chargeModal.amount + surchargeAmount;
         return (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[65]">
@@ -432,7 +501,7 @@ const Tenants: React.FC = () => {
                   <h2 className="font-bold text-gray-800 text-lg">Bill New Charge</h2>
                   <p className="text-xs text-orange-600 font-semibold">{chargeModal.tenant.name}</p>
                 </div>
-                <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false })} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false, surchargeRate: 5 })} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
               </div>
               <div className="p-6 space-y-4">
                 <div className="bg-gray-50 p-3 rounded-xl text-center border border-gray-100">
@@ -458,25 +527,40 @@ const Tenants: React.FC = () => {
                     onChange={(e) => setChargeModal({ ...chargeModal, amount: Number(e.target.value) })}
                   />
                 </div>
-                <label className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={chargeModal.applySurcharge}
-                    onChange={(e) => setChargeModal({ ...chargeModal, applySurcharge: e.target.checked })}
-                    className="w-4 h-4 accent-orange-500"
-                  />
-                  <div>
-                    <p className="text-sm font-bold text-amber-800">Apply 5% Surcharge</p>
-                    <p className="text-[10px] text-amber-600">on current balance of {formatUgx(currentBalance)}</p>
-                  </div>
-                  {chargeModal.applySurcharge && <span className="ml-auto font-black text-orange-700 text-sm">+{formatUgx(surchargeAmount)}</span>}
-                </label>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex flex-col gap-2">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={chargeModal.applySurcharge}
+                      onChange={(e) => setChargeModal({ ...chargeModal, applySurcharge: e.target.checked })}
+                      className="w-4 h-4 accent-orange-500"
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-amber-800">Apply Surcharge</p>
+                      <p className="text-[10px] text-amber-600">on current balance of {formatUgx(currentBalance)}</p>
+                    </div>
+                  </label>
+                  {chargeModal.applySurcharge && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="relative w-24">
+                        <input
+                          type="number"
+                          value={chargeModal.surchargeRate}
+                          onChange={(e) => setChargeModal({ ...chargeModal, surchargeRate: Number(e.target.value) })}
+                          className="w-full p-2 bg-white border border-amber-300 rounded outline-none font-bold text-amber-900 pr-8 text-sm"
+                        />
+                        <span className="absolute right-3 top-2 text-amber-600 font-bold">%</span>
+                      </div>
+                      <span className="ml-auto font-black text-orange-700 text-sm">+{formatUgx(surchargeAmount)}</span>
+                    </div>
+                  )}
+                </div>
                 <div className="bg-orange-50 p-3 rounded-xl border border-orange-200 flex justify-between items-center">
                   <span className="text-xs font-bold text-orange-600 uppercase">Total to Add</span>
                   <span className="font-black text-orange-700 text-lg">{formatUgx(totalCharge)}</span>
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false })} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">Cancel</button>
+                  <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false, surchargeRate: 5 })} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">Cancel</button>
                   <button onClick={handleAddCharge} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 shadow-lg active:scale-95">Confirm Charge</button>
                 </div>
               </div>

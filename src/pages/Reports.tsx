@@ -67,25 +67,34 @@ const Reports: React.FC = () => {
   today.setHours(0, 0, 0, 0);
 
   const processedTenants = reportData.tenants.map((t: any) => {
-    // Use cumulativeBalance as the single source of truth (set by ledger operations).
-    // Fall back to legacy balance field for tenants created before this update.
-    const effectiveArrears = Math.max(0, Number(t.cumulativeBalance ?? t.balance ?? 0));
-
+    const base = Number(t.cumulativeBalance ?? t.balance ?? 0);
     const paidUntilDate = new Date(t.paidUntil);
     paidUntilDate.setHours(0, 0, 0, 0);
-    const diffTime = today >= paidUntilDate
-      ? Math.abs(today.getTime() - paidUntilDate.getTime())
-      : 0;
+
+    let monthsPerCycle = 1;
+    if (t.rentFrequency === "3 Months") monthsPerCycle = 3;
+    else if (t.rentFrequency === "6 Months") monthsPerCycle = 6;
+    else if (t.rentFrequency === "Yearly") monthsPerCycle = 12;
+
+    let cyclesElapsed = 0;
+    let effectiveArrears = base;
+    if (today > paidUntilDate) {
+      const cursor = new Date(paidUntilDate);
+      while (cursor <= today) {
+        cyclesElapsed++;
+        cursor.setMonth(cursor.getMonth() + monthsPerCycle);
+      }
+      effectiveArrears = Math.max(0, base + cyclesElapsed * Number(t.rentAmount || 0));
+    } else {
+      effectiveArrears = Math.max(0, base);
+    }
+
+    const diffTime = today > paidUntilDate
+      ? Math.abs(today.getTime() - paidUntilDate.getTime()) : 0;
     const daysLate = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
 
     const property = reportData.properties.find((p: any) => p.id === t.propertyId);
-
-    return {
-      ...t,
-      effectiveArrears,
-      daysLate,
-      propertyName: property ? property.name : "Unassigned Unit"
-    };
+    return { ...t, effectiveArrears, daysLate, propertyName: property ? property.name : "Unassigned Unit" };
   });
 
   // --- FILTERING ---
