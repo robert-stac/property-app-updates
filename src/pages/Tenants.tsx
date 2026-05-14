@@ -92,8 +92,8 @@ const Tenants: React.FC = () => {
     paidUntilDate.setHours(0, 0, 0, 0);
 
     if (today < paidUntilDate) {
-      // Still within the paid period — only show any existing stored balance
-      return Number(tenant.balance || 0);
+      // Still within the paid period — subtract lastAmountPaid from one cycle
+      return Math.max(0, Number(tenant.rentAmount || 0) - Number(tenant.lastAmountPaid || 0));
     }
 
     // How many months per cycle?
@@ -111,9 +111,11 @@ const Tenants: React.FC = () => {
     const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
     const accruedRent = overdueCycles * (Number(tenant.rentAmount) || 0);
 
-    // Add any pre-existing stored balance (partial payments etc.)
-    const baseBalance = Number(tenant.balance || 0);
-    return accruedRent + baseBalance;
+    // Subtract what the tenant has already paid towards the current overdue period.
+    // Using lastAmountPaid (not balance) avoids double-counting: balance = rentAmount - lastAmountPaid,
+    // so adding balance on top of accruedRent would inflate arrears by lastAmountPaid.
+    const alreadyPaid = Number(tenant.lastAmountPaid || 0);
+    return Math.max(0, accruedRent - alreadyPaid);
   };
 
   const getTenantStatus = (tenant: any) => {

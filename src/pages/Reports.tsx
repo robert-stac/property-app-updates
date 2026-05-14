@@ -69,9 +69,8 @@ const Reports: React.FC = () => {
   const processedTenants = reportData.tenants.map((t: any) => {
     const paidUntilDate = new Date(t.paidUntil);
     paidUntilDate.setHours(0, 0, 0, 0);
-    const baseBalance = Number(t.balance || 0);
 
-    let effectiveArrears = baseBalance;
+    let effectiveArrears = 0;
     let daysLate = 0;
 
     if (today >= paidUntilDate) {
@@ -86,11 +85,17 @@ const Reports: React.FC = () => {
       const monthDiff = (yearDiff * 12) + (today.getMonth() - paidUntilDate.getMonth());
       const overdueMonths = Math.max(1, monthDiff + 1);
       const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
-      
-      effectiveArrears = (overdueCycles * (Number(t.rentAmount) || 0)) + baseBalance;
+
+      // Subtract lastAmountPaid to credit partial payments.
+      // Do NOT add balance (= rentAmount - lastAmountPaid) as that double-counts the shortfall.
+      const alreadyPaid = Number(t.lastAmountPaid || 0);
+      effectiveArrears = Math.max(0, (overdueCycles * (Number(t.rentAmount) || 0)) - alreadyPaid);
 
       const diffTime = Math.abs(today.getTime() - paidUntilDate.getTime());
       daysLate = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    } else {
+      // Still within paid period — any shortfall from the current cycle
+      effectiveArrears = Math.max(0, Number(t.rentAmount || 0) - Number(t.lastAmountPaid || 0));
     }
 
     const property = reportData.properties.find((p: any) => p.id === t.propertyId);
