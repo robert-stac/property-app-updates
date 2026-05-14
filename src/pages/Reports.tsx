@@ -67,44 +67,24 @@ const Reports: React.FC = () => {
   today.setHours(0, 0, 0, 0);
 
   const processedTenants = reportData.tenants.map((t: any) => {
+    // Use cumulativeBalance as the single source of truth (set by ledger operations).
+    // Fall back to legacy balance field for tenants created before this update.
+    const effectiveArrears = Math.max(0, Number(t.cumulativeBalance ?? t.balance ?? 0));
+
     const paidUntilDate = new Date(t.paidUntil);
     paidUntilDate.setHours(0, 0, 0, 0);
-
-    let effectiveArrears = 0;
-    let daysLate = 0;
-
-    if (today >= paidUntilDate) {
-      // How many months per rent cycle?
-      let monthsPerCycle = 1;
-      if (t.rentFrequency === "3 Months") monthsPerCycle = 3;
-      else if (t.rentFrequency === "6 Months") monthsPerCycle = 6;
-      else if (t.rentFrequency === "Yearly") monthsPerCycle = 12;
-
-      // Count elapsed months since paidUntil (add 1 because that month is now due)
-      const yearDiff = today.getFullYear() - paidUntilDate.getFullYear();
-      const monthDiff = (yearDiff * 12) + (today.getMonth() - paidUntilDate.getMonth());
-      const overdueMonths = Math.max(1, monthDiff + 1);
-      const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
-
-      // Subtract lastAmountPaid to credit partial payments.
-      // Do NOT add balance (= rentAmount - lastAmountPaid) as that double-counts the shortfall.
-      const alreadyPaid = Number(t.lastAmountPaid || 0);
-      effectiveArrears = Math.max(0, (overdueCycles * (Number(t.rentAmount) || 0)) - alreadyPaid);
-
-      const diffTime = Math.abs(today.getTime() - paidUntilDate.getTime());
-      daysLate = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    } else {
-      // Still within paid period — any shortfall from the current cycle
-      effectiveArrears = Math.max(0, Number(t.rentAmount || 0) - Number(t.lastAmountPaid || 0));
-    }
+    const diffTime = today >= paidUntilDate
+      ? Math.abs(today.getTime() - paidUntilDate.getTime())
+      : 0;
+    const daysLate = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 0;
 
     const property = reportData.properties.find((p: any) => p.id === t.propertyId);
-    
-    return { 
-      ...t, 
-      effectiveArrears, 
-      daysLate, 
-      propertyName: property ? property.name : "Unassigned Unit" 
+
+    return {
+      ...t,
+      effectiveArrears,
+      daysLate,
+      propertyName: property ? property.name : "Unassigned Unit"
     };
   });
 

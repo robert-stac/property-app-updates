@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   Plus, Search, Trash2, Edit2, CheckCircle, AlertCircle, 
-  Clock, Calendar, DollarSign, Phone, ArrowRightLeft, History, X 
+  Clock, DollarSign, ArrowRightLeft, History, X, PlusCircle, Receipt
 } from "lucide-react";
 import { useCurrency } from "../context/CurrencyContext";
 // --- FIREBASE IMPORTS ---
@@ -31,6 +31,14 @@ const Tenants: React.FC = () => {
     tenant: null,
     amount: 0
   });
+
+  const [chargeModal, setChargeModal] = useState<{
+    show: boolean;
+    tenant: any | null;
+    amount: number;
+    description: string;
+    applySurcharge: boolean;
+  }>({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false });
 
   const [newTenant, setNewTenant] = useState({
     id: "",
@@ -84,38 +92,10 @@ const Tenants: React.FC = () => {
     }
   };
 
-  // --- LOGIC: GET DYNAMIC ARREARS ---
+  // --- LEDGER-BASED ARREARS: cumulativeBalance is the single source of truth ---
+  // It is updated directly in Firebase whenever a charge is billed or a payment is received.
   const calculateEffectiveArrears = (tenant: any) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const paidUntilDate = new Date(tenant.paidUntil);
-    paidUntilDate.setHours(0, 0, 0, 0);
-
-    if (today < paidUntilDate) {
-      // Still within the paid period — subtract lastAmountPaid from one cycle
-      return Math.max(0, Number(tenant.rentAmount || 0) - Number(tenant.lastAmountPaid || 0));
-    }
-
-    // How many months per cycle?
-    let monthsPerCycle = 1;
-    if (tenant.rentFrequency === "3 Months") monthsPerCycle = 3;
-    else if (tenant.rentFrequency === "6 Months") monthsPerCycle = 6;
-    else if (tenant.rentFrequency === "Yearly") monthsPerCycle = 12;
-
-    // Count how many full cycles (months) have elapsed since paidUntil
-    const yearDiff = today.getFullYear() - paidUntilDate.getFullYear();
-    const monthDiff = (yearDiff * 12) + (today.getMonth() - paidUntilDate.getMonth());
-    // Add 1 because the paidUntil month itself is now due
-    const overdueMonths = Math.max(1, monthDiff + 1);
-
-    const overdueCycles = Math.ceil(overdueMonths / monthsPerCycle);
-    const accruedRent = overdueCycles * (Number(tenant.rentAmount) || 0);
-
-    // Subtract what the tenant has already paid towards the current overdue period.
-    // Using lastAmountPaid (not balance) avoids double-counting: balance = rentAmount - lastAmountPaid,
-    // so adding balance on top of accruedRent would inflate arrears by lastAmountPaid.
-    const alreadyPaid = Number(tenant.lastAmountPaid || 0);
-    return Math.max(0, accruedRent - alreadyPaid);
+    return Math.max(0, Number(tenant.cumulativeBalance ?? tenant.balance ?? 0));
   };
 
   const getTenantStatus = (tenant: any) => {
@@ -136,24 +116,36 @@ const Tenants: React.FC = () => {
 
   // --- SAVE TO CLOUD ---
   const saveTenant = async () => {
-    const tenantData = {
+    const isEditing = !!newTenant.id;
+
+    // For NEW tenants: seed cumulativeBalance from their first partial payment.
+    // For EDITS: preserve the existing cumulativeBalance so ledger history is not wiped.
+    const existingTenant = tenants.find(t => t.id === newTenant.id);
+    const preservedBalance = isEditing
+      ? Number(existingTenant?.cumulativeBalance ?? existingTenant?.balance ?? 0)
+      : Math.max(0, Number(newTenant.rentAmount || 0) - Number(newTenant.lastAmountPaid || 0));
+
+    const baseData = {
       name: newTenant.name || "Unnamed",
       contact: newTenant.contact || "",
       propertyId: newTenant.propertyId || "",
       rentAmount: Number(newTenant.rentAmount) || 0,
       rentFrequency: newTenant.rentFrequency || "Monthly",
       paidUntil: newTenant.paidUntil || new Date().toISOString().split('T')[0],
-      balance: Math.max(0, Number(newTenant.rentAmount || 0) - Number(newTenant.lastAmountPaid || 0)),
-      lastAmountPaid: Number(newTenant.lastAmountPaid) || 0,
+      balance: preservedBalance,
+      cumulativeBalance: preservedBalance,
+      lastAmountPaid: isEditing
+        ? Number(existingTenant?.lastAmountPaid || 0)
+        : Number(newTenant.lastAmountPaid) || 0,
       paymentHistory: newTenant.paymentHistory || [],
       updatedAt: serverTimestamp()
     };
 
     try {
-      if (newTenant.id) {
-        await updateDoc(doc(db, "tenants", newTenant.id), tenantData);
+      if (isEditing) {
+        await updateDoc(doc(db, "tenants", newTenant.id), baseData);
       } else {
-        await addDoc(collection(db, "tenants"), { ...tenantData, createdAt: serverTimestamp() });
+        await addDoc(collection(db, "tenants"), { ...baseData, createdAt: serverTimestamp() });
       }
       setShowModal(false);
       resetForm();
@@ -210,72 +202,81 @@ const Tenants: React.FC = () => {
   };
 
   const recordPayment = (tenant: any) => {
-    const effectiveArrears = calculateEffectiveArrears(tenant);
-    setPaymentModal({
+    const currentBalance = calculateEffectiveArrears(tenant);
+    setPaymentModal({ show: true, tenant, amount: currentBalance });
+  };
+
+  const openChargeModal = (tenant: any) => {
+    setChargeModal({
       show: true,
-      tenant: tenant,
-      amount: effectiveArrears
+      tenant,
+      amount: Number(tenant.rentAmount) || 0,
+      description: "",
+      applySurcharge: false
     });
   };
 
-  // --- PROCESS PAYMENT ---
+  // --- PROCESS PAYMENT: deduct from ledger balance ---
   const handleProcessPayment = async () => {
     const { tenant, amount } = paymentModal;
     if (!tenant || amount <= 0) return;
 
-    // Total available for allocation (including what was already partially paid for the current cycle)
-    const totalAvailable = (Number(tenant.lastAmountPaid) || 0) + Number(amount);
-    const cycleAmount = Number(tenant.rentAmount) || 0;
-
-    if (cycleAmount <= 0) {
-      alert("Rent amount must be greater than 0");
-      return;
-    }
-
-    // How many full cycles does this payment cover?
-    const cyclesToAdvance = Math.floor(totalAvailable / cycleAmount);
-    const remainder = totalAvailable % cycleAmount;
-
-    let newPaidUntil = tenant.paidUntil;
-    let finalPaidTotal = totalAvailable; // Default if not advancing
-    let newBalance = Math.max(0, cycleAmount - totalAvailable);
-
-    if (cyclesToAdvance > 0) {
-      const date = new Date(tenant.paidUntil);
-      
-      // Determine months per cycle
-      let monthsPerCycle = 1;
-      if (tenant.rentFrequency === "3 Months") monthsPerCycle = 3;
-      else if (tenant.rentFrequency === "6 Months") monthsPerCycle = 6;
-      else if (tenant.rentFrequency === "Yearly") monthsPerCycle = 12;
-
-      // Advance the date by the number of cycles
-      date.setMonth(date.getMonth() + (cyclesToAdvance * monthsPerCycle));
-      newPaidUntil = date.toISOString().split('T')[0];
-      
-      // After advancing, the remainder is what has been "Paid So Far" for the NEXT cycle
-      finalPaidTotal = remainder;
-      newBalance = Math.max(0, cycleAmount - remainder);
-    }
+    const currentBalance = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
+    const newBalance = Math.max(0, currentBalance - amount);
 
     const newTransaction = {
-        date: new Date().toLocaleString(),
-        amount: amount,
-        currency: "UGX",
-        altAmount: getAltCurrency(amount)
+      date: new Date().toLocaleString(),
+      amount: amount,
+      type: "payment",
+      currency: "UGX",
+      altAmount: getAltCurrency(amount)
     };
 
     try {
       await updateDoc(doc(db, "tenants", tenant.id), {
-        lastAmountPaid: finalPaidTotal,
-        paidUntil: newPaidUntil,
+        cumulativeBalance: newBalance,
         balance: newBalance,
+        lastAmountPaid: amount,
         paymentHistory: [newTransaction, ...(tenant.paymentHistory || [])],
         updatedAt: serverTimestamp()
       });
       setPaymentModal({ show: false, tenant: null, amount: 0 });
     } catch (err) {
       alert("Payment failed: " + err);
+    }
+  };
+
+  // --- ADD CHARGE: bill rent quarter or surcharge ---
+  const handleAddCharge = async () => {
+    const { tenant, amount, description, applySurcharge } = chargeModal;
+    if (!tenant || amount <= 0) return;
+
+    const currentBalance = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
+    const surchargeAmount = applySurcharge ? Math.round(currentBalance * 0.05) : 0;
+    const totalCharge = amount + surchargeAmount;
+    const newBalance = currentBalance + totalCharge;
+
+    const chargeEntry = {
+      date: new Date().toLocaleString(),
+      amount: totalCharge,
+      rentCharge: amount,
+      surcharge: surchargeAmount,
+      description: description || "Rent Charge",
+      type: "charge",
+      currency: "UGX",
+      altAmount: getAltCurrency(totalCharge)
+    };
+
+    try {
+      await updateDoc(doc(db, "tenants", tenant.id), {
+        cumulativeBalance: newBalance,
+        balance: newBalance,
+        paymentHistory: [chargeEntry, ...(tenant.paymentHistory || [])],
+        updatedAt: serverTimestamp()
+      });
+      setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false });
+    } catch (err) {
+      alert("Charge failed: " + err);
     }
   };
 
@@ -368,8 +369,9 @@ const Tenants: React.FC = () => {
                     </td>
                     <td className="p-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => setViewHistory(tenant)} className="p-2 text-gray-400 hover:text-blue-600 bg-gray-50 rounded-lg"><History size={16} /></button>
-                        <button onClick={() => recordPayment(tenant)} className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg"><DollarSign size={16} /></button>
+                        <button onClick={() => setViewHistory(tenant)} title="Payment History" className="p-2 text-gray-400 hover:text-blue-600 bg-gray-50 rounded-lg"><History size={16} /></button>
+                        <button onClick={() => openChargeModal(tenant)} title="Bill New Charge" className="p-2 text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg"><Receipt size={16} /></button>
+                        <button onClick={() => recordPayment(tenant)} title="Record Payment" className="p-2 text-green-600 bg-green-50 hover:bg-green-100 rounded-lg"><DollarSign size={16} /></button>
                         <button onClick={() => handleEdit(tenant)} className="p-2 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg"><Edit2 size={16} /></button>
                         <button onClick={() => deleteTenant(tenant)} className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"><Trash2 size={16} /></button>
                       </div>
@@ -417,6 +419,72 @@ const Tenants: React.FC = () => {
         </div>
       )}
 
+      {/* BILL NEW CHARGE MODAL */}
+      {chargeModal.show && chargeModal.tenant && (() => {
+        const currentBalance = Number(chargeModal.tenant.cumulativeBalance ?? chargeModal.tenant.balance ?? 0);
+        const surchargeAmount = chargeModal.applySurcharge ? Math.round(currentBalance * 0.05) : 0;
+        const totalCharge = chargeModal.amount + surchargeAmount;
+        return (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-[65]">
+            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl border border-gray-100 overflow-hidden">
+              <div className="bg-orange-50 px-6 py-4 border-b border-orange-100 flex justify-between items-center">
+                <div>
+                  <h2 className="font-bold text-gray-800 text-lg">Bill New Charge</h2>
+                  <p className="text-xs text-orange-600 font-semibold">{chargeModal.tenant.name}</p>
+                </div>
+                <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false })} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="bg-gray-50 p-3 rounded-xl text-center border border-gray-100">
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">Current Outstanding Balance</p>
+                  <p className="font-black text-red-700 text-lg">{formatUgx(currentBalance)}</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Description</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Quarter 3 (Feb – Apr 2026)"
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none text-sm"
+                    value={chargeModal.description}
+                    onChange={(e) => setChargeModal({ ...chargeModal, description: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Rent Charge (UGX)</label>
+                  <input
+                    type="number"
+                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none font-bold"
+                    value={chargeModal.amount}
+                    onChange={(e) => setChargeModal({ ...chargeModal, amount: Number(e.target.value) })}
+                  />
+                </div>
+                <label className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={chargeModal.applySurcharge}
+                    onChange={(e) => setChargeModal({ ...chargeModal, applySurcharge: e.target.checked })}
+                    className="w-4 h-4 accent-orange-500"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-amber-800">Apply 5% Surcharge</p>
+                    <p className="text-[10px] text-amber-600">on current balance of {formatUgx(currentBalance)}</p>
+                  </div>
+                  {chargeModal.applySurcharge && <span className="ml-auto font-black text-orange-700 text-sm">+{formatUgx(surchargeAmount)}</span>}
+                </label>
+                <div className="bg-orange-50 p-3 rounded-xl border border-orange-200 flex justify-between items-center">
+                  <span className="text-xs font-bold text-orange-600 uppercase">Total to Add</span>
+                  <span className="font-black text-orange-700 text-lg">{formatUgx(totalCharge)}</span>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setChargeModal({ show: false, tenant: null, amount: 0, description: "", applySurcharge: false })} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">Cancel</button>
+                  <button onClick={handleAddCharge} className="flex-1 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 shadow-lg active:scale-95">Confirm Charge</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* PAYMENT HISTORY MODAL */}
       {viewHistory && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
@@ -427,18 +495,26 @@ const Tenants: React.FC = () => {
                 </div>
                 <div className="space-y-3 max-h-80 overflow-y-auto">
                     {viewHistory.paymentHistory?.length > 0 ? (
-                        viewHistory.paymentHistory.map((h: any, i: number) => (
-                            <div key={i} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        viewHistory.paymentHistory.map((h: any, i: number) => {
+                          const isCharge = h.type === "charge";
+                          return (
+                            <div key={i} className={`flex justify-between items-center p-3 rounded-xl border ${isCharge ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'}`}>
                                 <div>
                                     <p className="text-[10px] text-gray-400 font-bold uppercase">{h.date}</p>
-                                    <p className="font-bold text-gray-700">Payment Received</p>
+                                    <p className={`font-bold text-sm ${isCharge ? 'text-red-700' : 'text-emerald-700'}`}>
+                                      {isCharge ? (h.description || "Rent Charge") : "Payment Received"}
+                                    </p>
+                                    {isCharge && h.surcharge > 0 && <p className="text-[10px] text-orange-500 font-bold">incl. {formatUgx(h.surcharge)} surcharge</p>}
                                 </div>
                                 <div className="text-right">
-                                    <p className="font-black text-emerald-600">+{Number(h.amount || 0).toLocaleString()} {h.currency === "UGX" ? "UGX" : "USD"}</p>
-                                    <p className="text-[10px] text-emerald-400 font-bold uppercase">{h.altAmount || getAltCurrency(h.amount || 0)}</p>
+                                    <p className={`font-black ${isCharge ? 'text-red-600' : 'text-emerald-600'}`}>
+                                      {isCharge ? "+" : "-"}{Number(h.amount || 0).toLocaleString()} UGX
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase">{h.altAmount || getAltCurrency(h.amount || 0)}</p>
                                 </div>
                             </div>
-                        ))
+                          );
+                        })
                     ) : <p className="text-center text-gray-400 py-10">No history available</p>}
                 </div>
             </div>
@@ -570,11 +646,36 @@ const Tenants: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-3 bg-red-50 rounded-xl border border-red-100 text-center">
-                <label className="text-xs font-bold text-red-400 uppercase">Current Balance Due</label>
-                <div className="text-lg font-black text-red-700">{formatUgx(newTenant.rentAmount - newTenant.lastAmountPaid)}</div>
-                <p className="text-[10px] text-red-500 font-bold uppercase">{getAltCurrency(newTenant.rentAmount - newTenant.lastAmountPaid)}</p>
-              </div>
+              {newTenant.id ? (
+                // EDIT MODE: allow direct correction of the running ledger balance
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-red-500 uppercase ml-1">⚠ Correct Outstanding Balance (UGX)</label>
+                  <input
+                    type="number"
+                    className="w-full p-3 bg-red-50 border border-red-200 rounded-xl outline-none font-black text-red-700 text-lg"
+                    value={(() => {
+                      const existing = tenants.find(t => t.id === newTenant.id);
+                      return Number(existing?.cumulativeBalance ?? existing?.balance ?? 0);
+                    })()}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setTenants(prev => prev.map(t =>
+                        t.id === newTenant.id
+                          ? { ...t, cumulativeBalance: val, balance: val }
+                          : t
+                      ));
+                    }}
+                  />
+                  <p className="text-[10px] text-red-400 font-bold ml-1">Edit this to correct the total outstanding balance. Changes save when you click Save.</p>
+                </div>
+              ) : (
+                // NEW TENANT: show computed balance preview
+                <div className="p-3 bg-red-50 rounded-xl border border-red-100 text-center">
+                  <label className="text-xs font-bold text-red-400 uppercase">Opening Balance</label>
+                  <div className="text-lg font-black text-red-700">{formatUgx(Math.max(0, newTenant.rentAmount - newTenant.lastAmountPaid))}</div>
+                  <p className="text-[10px] text-red-500 font-bold uppercase">{getAltCurrency(Math.max(0, newTenant.rentAmount - newTenant.lastAmountPaid))}</p>
+                </div>
+              )}
               
               <div>
                    <label className="text-xs font-bold text-gray-500 uppercase ml-1">Paid Until</label>
