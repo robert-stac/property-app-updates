@@ -111,7 +111,15 @@ const Reports: React.FC = () => {
     .sort((a, b) => b.effectiveArrears - a.effectiveArrears);
 
   // --- TOTALS ---
-  const totalRevenue = filteredTenants.reduce((acc, t: any) => acc + Number(t.lastAmountPaid || 0), 0);
+  const totalRevenue = filteredTenants.reduce((acc, t: any) => {
+    if (Array.isArray(t.paymentHistory) && t.paymentHistory.length > 0) {
+      const tenantSum = t.paymentHistory.reduce((sum: number, h: any) => {
+        return (h.type === "payment" || !h.type) ? sum + Number(h.amount || 0) : sum;
+      }, 0);
+      return acc + tenantSum;
+    }
+    return acc + Number(t.lastAmountPaid || 0);
+  }, 0);
   const totalArrears = filteredTenants.reduce((acc, t: any) => acc + t.effectiveArrears, 0);
   const totalRepairs = filteredRepairs.reduce((acc, r: any) => acc + Number(r.cost || 0), 0);
   const netPosition = totalRevenue - totalRepairs;

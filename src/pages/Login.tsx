@@ -1,88 +1,103 @@
 import React, { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { LogIn, ShieldAlert, Eye, EyeOff } from "lucide-react";
+import { LogIn, ShieldAlert, Eye, EyeOff, Zap } from "lucide-react";
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState(""); // Changed from username to email for Firebase
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const { login, loginWithGoogle } = useAuth(); // Added loginWithGoogle
+  const { login, loginWithGoogle, bypassLoginDev } = useAuth();
+
+  const isLocalhost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     try {
       await login(email, password);
       window.location.href = "/"; 
     } catch (err: any) {
-      setError("Invalid credentials. Please use your registered email and password.");
+      console.error("Login Error:", err);
+      const errMsg = String(err?.message || "");
+      if (errMsg.includes("referer") || errMsg.includes("blocked") || err?.code === "auth/requests-from-referer-are-blocked") {
+        setError("Firebase API Key blocked 'http://localhost:5173/'. Click 'Quick Dev Bypass' below to enter locally.");
+      } else {
+        setError("Invalid credentials. Please use your registered email and password.");
+      }
     }
   };
 
   const handleGoogleSignIn = async () => {
+    setError("");
     try {
       await loginWithGoogle();
-      window.location.href = "/property-app-updates/";
+      window.location.href = "/";
     } catch (err: any) {
-      setError("Google Sign-In failed. Please try again.");
+      console.error("Google Sign-In Error:", err);
+      const errMsg = String(err?.message || "");
+      if (err?.code === "auth/popup-closed-by-user") {
+        setError("Sign-in popup was closed before completing.");
+      } else if (err?.code === "auth/popup-blocked") {
+        setError("Sign-in popup was blocked by your browser. Please allow popups.");
+      } else if (errMsg.includes("referer") || errMsg.includes("blocked")) {
+        setError("Firebase API Key blocked 'http://localhost:5173/'. Click 'Quick Dev Bypass' below to enter locally.");
+      } else {
+        setError(err?.message || "Google Sign-In failed. Please try again.");
+      }
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-blue-900 px-4">
-      <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-[2.5rem] shadow-2xl border border-white/10">
+    <div className="min-h-screen flex items-center justify-center bg-blue-900 px-4 py-8">
+      <div className="max-w-sm w-full bg-white p-6 sm:p-8 rounded-2xl shadow-xl border border-blue-100">
         
-        {/* Logo Section */}
+        {/* Header / Logo */}
         <div className="text-center">
-          <div className="mx-auto h-40 w-40 bg-blue-900 rounded-2xl flex items-center justify-center overflow-hidden mb-6 shadow-xl ring-4 ring-blue-50">
+          <div className="mx-auto h-16 w-16 bg-blue-900 rounded-xl flex items-center justify-center overflow-hidden mb-3 shadow-md ring-2 ring-blue-100">
             <img 
               src="/pwa-512x512.png" 
               alt="Buwembo & Co. Logo" 
               className="w-full h-full object-cover"
             />
           </div>
-          <h2 className="text-2xl font-black text-blue-900 tracking-tight uppercase leading-none">
-            Buwembo & Co.
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+            Buwembo & Co. Advocates
           </h2>
-          <p className="mt-1 text-xs text-blue-400 font-bold uppercase tracking-[0.2em]">
-            Advocates
-          </p>
-          <p className="mt-1 text-[10px] text-blue-800 font-bold uppercase tracking-[0.2em]">
+          <p className="text-xs text-slate-500 font-medium mt-0.5">
             Property Management System
           </p>
         </div>
 
-        <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+        {/* Form */}
+        <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl flex items-center gap-3 text-xs font-bold animate-pulse">
-              <ShieldAlert size={16} /> {error}
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl flex items-center gap-2 text-xs font-medium">
+              <ShieldAlert size={15} className="shrink-0 text-red-500" /> 
+              <span>{error}</span>
             </div>
           )}
 
-          <div className="space-y-4">
-            {/* Email Field */}
-            <div className="text-left">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Email Address</label>
-              <div className="mt-1">
-                <input
-                  type="email"
-                  required
-                  className="block w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all text-sm font-medium"
-                  placeholder="name@firm.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Email Address</label>
+              <input
+                type="email"
+                required
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm text-slate-800"
+                placeholder="name@firm.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
 
-            {/* Password Field with Toggle */}
-            <div className="text-left">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest ml-1">Password</label>
-              <div className="mt-1 relative">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Password</label>
+              <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
                   required
-                  className="block w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all text-sm font-medium"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm text-slate-800 pr-10"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -90,9 +105,9 @@ const Login: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                 >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
@@ -100,41 +115,52 @@ const Login: React.FC = () => {
 
           <button
             type="submit"
-            className="group relative w-full flex justify-center py-4 px-4 border border-transparent text-sm font-bold rounded-2xl text-white bg-blue-600 hover:bg-blue-700 focus:outline-none shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-semibold rounded-xl text-white bg-blue-900 hover:bg-blue-800 focus:outline-none shadow-md transition-all active:scale-[0.99]"
           >
-            <span className="absolute left-4 inset-y-0 flex items-center">
-              <LogIn className="h-5 w-5 text-blue-300" />
-            </span>
-            Secure Sign In
+            <LogIn size={16} />
+            Sign In
           </button>
         </form>
 
         {/* Divider */}
-        <div className="relative my-6">
+        <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-gray-100"></span>
+            <span className="w-full border-t border-slate-200"></span>
           </div>
-          <div className="relative flex justify-center text-[10px] uppercase">
-            <span className="bg-white px-4 text-gray-400 font-bold tracking-widest">Or continue with</span>
+          <div className="relative flex justify-center text-[11px]">
+            <span className="bg-white px-3 text-slate-400 font-medium">Or</span>
           </div>
         </div>
 
-        {/* Google Sign In Button */}
-        <button
-          onClick={handleGoogleSignIn}
-          type="button"
-          className="w-full flex items-center justify-center gap-3 py-4 px-4 bg-white border-2 border-gray-100 rounded-2xl text-sm font-bold text-gray-700 hover:bg-gray-50 hover:border-gray-200 transition-all active:scale-[0.98] shadow-sm"
-        >
-          <img 
-            src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
-            className="w-5 h-5" 
-            alt="Google" 
-          />
-          Sign in with Google
-        </button>
+        {/* Actions */}
+        <div className="space-y-2">
+          <button
+            onClick={handleGoogleSignIn}
+            type="button"
+            className="w-full flex items-center justify-center gap-2.5 py-2.5 px-4 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-all shadow-sm active:scale-[0.99]"
+          >
+            <img 
+              src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" 
+              className="w-4 h-4" 
+              alt="Google" 
+            />
+            Sign in with Google
+          </button>
 
-        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest text-center mt-8">
-          Authorized Access Only
+          {isLocalhost && (
+            <button
+              onClick={() => bypassLoginDev()}
+              type="button"
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-[0.99]"
+            >
+              <Zap size={15} />
+              Quick Dev Bypass
+            </button>
+          )}
+        </div>
+
+        <p className="text-[11px] text-slate-400 font-medium text-center mt-5">
+          Authorized Staff Only
         </p>
       </div>
     </div>

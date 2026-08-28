@@ -105,6 +105,8 @@ const Tenants: React.FC = () => {
 
   const calculateEffectiveArrears = (tenant: any) => {
     const base = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
+    if (!tenant.paidUntil) return Math.max(0, base);
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const paidUntilDate = new Date(tenant.paidUntil);
@@ -112,11 +114,10 @@ const Tenants: React.FC = () => {
 
     if (today <= paidUntilDate) return Math.max(0, base);
 
-    // Count precisely how many cycle-start-dates have passed since paidUntil
     const monthsPerCycle = getMonthsPerCycle(tenant);
     let cyclesElapsed = 0;
     const cursor = new Date(paidUntilDate);
-    while (cursor <= today) {
+    while (cursor < today) {
       cyclesElapsed++;
       cursor.setMonth(cursor.getMonth() + monthsPerCycle);
     }
@@ -134,16 +135,13 @@ const Tenants: React.FC = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (effectiveArrears > 0) {
-      // Has an outstanding balance — in arrears
       return { label: "ARREARS", color: "bg-red-100 text-red-700 border-red-200", icon: AlertCircle };
     }
 
     if (today > dueDate) {
-      // Paid period has expired but no new charge billed yet — manager action needed
       return { label: "UNBILLED", color: "bg-orange-100 text-orange-700 border-orange-200", icon: Clock };
     }
 
-    // Paid period is current
     if (diffDays > 0 && diffDays <= 7) {
       return { label: "DUE SOON", color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Clock };
     }
@@ -154,8 +152,6 @@ const Tenants: React.FC = () => {
   const saveTenant = async () => {
     const isEditing = !!newTenant.id;
 
-    // For NEW tenants: seed cumulativeBalance from their first partial payment.
-    // For EDITS: preserve the existing cumulativeBalance so ledger history is not wiped.
     const existingTenant = tenants.find(t => t.id === newTenant.id);
     const preservedBalance = isEditing
       ? Number(existingTenant?.cumulativeBalance ?? existingTenant?.balance ?? 0)
@@ -248,36 +244,50 @@ const Tenants: React.FC = () => {
       tenant,
       amount: Number(tenant.rentAmount) || 0,
       description: "",
-      applySurcharge: false
+      applySurcharge: false,
+      surchargeRate: 5
     });
   };
 
-  // --- PROCESS PAYMENT: lock in auto-accrued cycles then deduct ---
+  // --- PROCESS PAYMENT: Accurately calculate accrued debt & advance paidUntil for advance payments ---
   const handleProcessPayment = async () => {
     const { tenant, amount } = paymentModal;
     if (!tenant || amount <= 0) return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const paidUntilDate = new Date(tenant.paidUntil);
+    const paidUntilDate = new Date(tenant.paidUntil || new Date());
     paidUntilDate.setHours(0, 0, 0, 0);
     const monthsPerCycle = getMonthsPerCycle(tenant);
-
-    // Advance cursor past today to find the next future cycle start
-    let cyclesElapsed = 0;
-    const cursor = new Date(paidUntilDate);
-    while (cursor <= today) {
-      cyclesElapsed++;
-      cursor.setMonth(cursor.getMonth() + monthsPerCycle);
-    }
-    // cursor is now the first FUTURE cycle-start date — set as new paidUntil
-    // so that auto-accrual resets and doesn't double-count these cycles next time
-    const newPaidUntil = cursor.toISOString().split('T')[0];
+    const rentAmount = Number(tenant.rentAmount || 0);
 
     const base = Number(tenant.cumulativeBalance ?? tenant.balance ?? 0);
-    const autoAccrued = cyclesElapsed * Number(tenant.rentAmount || 0);
-    const lockedBalance = base + autoAccrued; // full confirmed debt
-    const newBalance = Math.max(0, lockedBalance - amount);
+    let cyclesElapsed = 0;
+    const cursor = new Date(paidUntilDate);
+
+    if (today > paidUntilDate) {
+      while (cursor < today) {
+        cyclesElapsed++;
+        cursor.setMonth(cursor.getMonth() + monthsPerCycle);
+      }
+    }
+    const totalAccruedDebt = Math.max(0, base + cyclesElapsed * rentAmount);
+
+    let newBalance = totalAccruedDebt - amount;
+    let newPaidUntilDate = new Date(cursor);
+
+    if (newBalance < 0 && rentAmount > 0) {
+      const excess = Math.abs(newBalance);
+      const extraCycles = Math.floor(excess / rentAmount);
+      const remainder = excess % rentAmount;
+
+      newPaidUntilDate.setMonth(newPaidUntilDate.getMonth() + (extraCycles * monthsPerCycle));
+      newBalance = remainder > 0 ? -remainder : 0;
+    } else if (newBalance === 0 && cyclesElapsed > 0) {
+      newPaidUntilDate = new Date(cursor);
+    }
+
+    const newPaidUntil = newPaidUntilDate.toISOString().split('T')[0];
 
     const newTransaction = {
       date: new Date().toLocaleString(),

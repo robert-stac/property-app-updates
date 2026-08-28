@@ -21,7 +21,7 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Analytics helper (prevents errors in environments where analytics isn't supported)
+// Analytics helper (prevents errors in environments where analytics isn't supported or blocked)
 isSupported().then((supported) => {
   if (supported) getAnalytics(app);
-});
+}).catch(() => {});

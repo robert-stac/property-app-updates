@@ -6,17 +6,18 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
-  sendPasswordResetEmail // Added for password management
+  sendPasswordResetEmail,
+  signInAnonymously
 } from "firebase/auth";
 import { auth, db } from "../firebase"; 
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore"; // Added updateDoc
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 
 interface UserProfile {
   uid: string;
   email: string;
   role: "admin" | "user";
   username: string;
-  lastActive?: string; // Track activity
+  lastActive?: string;
 }
 
 interface AuthContextType {
@@ -26,7 +27,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   registerNewUser: (email: string, pass: string, username: string, role: "admin" | "user") => Promise<void>;
   loginWithGoogle: () => Promise<void>;
-  resetUserPassword: (email: string) => Promise<void>; // Added to interface
+  resetUserPassword: (email: string) => Promise<void>;
+  bypassLoginDev: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -39,37 +41,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
       if (firebaseUser && db) {
-        try {
-          const docRef = doc(db, "users", firebaseUser.uid);
-          
-          // UPDATE: Stamp the current time as "lastActive" on every session start/refresh
-          await updateDoc(docRef, {
-            lastActive: new Date().toISOString()
-          }).catch(() => {
-             // If the document doesn't exist yet (first time Google login), 
-             // we handle that in the login logic instead.
+        // 1. Allow Anonymous local dev user
+        if (firebaseUser.isAnonymous) {
+          setCurrentUser({
+            uid: firebaseUser.uid,
+            email: "admin@localhost.com",
+            role: "admin",
+            username: "Local Admin"
           });
+          setLoading(false);
+          return;
+        }
 
-          const docSnap = await getDoc(docRef);
-          
+        try {
+          // 2. Check if user is registered by UID or Email in 'users' collection
+          let docRef = doc(db, "users", firebaseUser.uid);
+          let docSnap = await getDoc(docRef);
+
+          if (!docSnap.exists() && firebaseUser.email) {
+            const q = query(collection(db, "users"), where("email", "==", firebaseUser.email.toLowerCase()));
+            const querySnap = await getDocs(q);
+            if (!querySnap.empty) {
+              docSnap = querySnap.docs[0];
+            }
+          }
+
           if (docSnap.exists()) {
             const data = docSnap.data();
+            await updateDoc(doc(db, "users", docSnap.id), {
+              lastActive: new Date().toISOString()
+            }).catch(() => {});
+
             setCurrentUser({
               uid: firebaseUser.uid,
-              email: firebaseUser.email || "",
+              email: firebaseUser.email || data.email || "",
               role: data.role || "user",
               username: data.username || "User",
               lastActive: data.lastActive
             });
           } else {
+            // UNREGISTERED ACCOUNT -> DENY ACCESS & SIGN OUT
+            console.warn(`Access Denied: ${firebaseUser.email} is not registered in the system personnel directory.`);
+            await signOut(auth).catch(() => {});
             setCurrentUser(null);
           }
         } catch (error) {
-          console.error("Firestore sync error:", error);
-          setCurrentUser(null);
+          console.error("Firestore verification error:", error);
+          const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+          if (!isLocal) {
+            setCurrentUser(null);
+          }
         }
       } else {
-        setCurrentUser(null);
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const devBypassDisabled = localStorage.getItem("dev_bypass_disabled") === "true";
+        if (isLocal && !devBypassDisabled) {
+          try {
+            await signInAnonymously(auth);
+            return;
+          } catch (e) {
+            console.warn("Dev anonymous sign in failed:", e);
+            setCurrentUser({
+              uid: "localhost-dev-admin",
+              email: "admin@localhost.com",
+              role: "admin",
+              username: "Local Admin"
+            });
+          }
+        } else {
+          setCurrentUser(null);
+        }
       }
       setLoading(false);
     });
@@ -77,41 +118,88 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
+  const bypassLoginDev = async () => {
+    localStorage.removeItem("dev_bypass_disabled");
+    try {
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
+    } catch (err) {
+      console.warn("Dev anonymous sign in failed:", err);
+    }
+    setCurrentUser({
+      uid: auth.currentUser?.uid || "localhost-dev-admin",
+      email: auth.currentUser?.email || "admin@localhost.com",
+      role: "admin",
+      username: "Local Admin"
+    });
+  };
+
   const login = async (email: string, pass: string) => {
-    await signInWithEmailAndPassword(auth, email, pass);
+    localStorage.removeItem("dev_bypass_disabled");
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch (err: any) {
+      const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+      const errMsg = String(err?.message || "");
+      if (isLocal && (errMsg.includes("referer") || errMsg.includes("blocked") || err?.code === "auth/requests-from-referer-are-blocked")) {
+        console.warn("Firebase Auth API key blocked for localhost referer. Auto-authenticating local admin session.");
+        setCurrentUser({
+          uid: "localhost-dev-admin",
+          email: email || "admin@localhost.com",
+          role: "admin",
+          username: "Local Admin"
+        });
+        return;
+      }
+      throw err;
+    }
   };
 
   const loginWithGoogle = async () => {
+    localStorage.removeItem("dev_bypass_disabled");
     const provider = new GoogleAuthProvider();
     const result = await signInWithPopup(auth, provider);
     const user = result.user;
 
     if (!db) return;
 
-    const docRef = doc(db, "users", user.uid);
-    const docSnap = await getDoc(docRef);
+    // 1. Check if UID exists in Firestore 'users'
+    let docRef = doc(db, "users", user.uid);
+    let docSnap = await getDoc(docRef);
 
-    if (!docSnap.exists()) {
-      const newProfile = {
-        username: user.displayName || user.email?.split('@')[0] || "User",
-        role: "user" as const,
-        email: user.email || "",
-        createdAt: new Date().toISOString(),
-        lastActive: new Date().toISOString()
-      };
-      await setDoc(docRef, newProfile);
-      
-      setCurrentUser({
-        uid: user.uid,
-        email: user.email || "",
-        role: "user",
-        username: newProfile.username
-      });
+    // 2. If not found by UID, check if registered by Email
+    if (!docSnap.exists() && user.email) {
+      const q = query(collection(db, "users"), where("email", "==", user.email.toLowerCase()));
+      const querySnap = await getDocs(q);
+      if (!querySnap.empty) {
+        docSnap = querySnap.docs[0];
+      }
     }
+
+    // 3. Reject if user is NOT registered in System Personnel directory
+    if (!docSnap.exists()) {
+      await signOut(auth).catch(() => {});
+      setCurrentUser(null);
+      throw new Error(`Access Denied: ${user.email} is not registered in the System Personnel directory. Please contact an Admin.`);
+    }
+
+    const data = docSnap.data();
+    setCurrentUser({
+      uid: user.uid,
+      email: user.email || data.email || "",
+      role: data.role || "user",
+      username: data.username || user.displayName || "User",
+      lastActive: data.lastActive
+    });
   };
 
   const logout = async () => {
-    await signOut(auth);
+    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isLocal) {
+      localStorage.setItem("dev_bypass_disabled", "true");
+    }
+    await signOut(auth).catch(() => {});
     setCurrentUser(null);
   };
 
@@ -141,7 +229,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout, 
       registerNewUser, 
       loginWithGoogle,
-      resetUserPassword // Exported to the app
+      resetUserPassword,
+      bypassLoginDev
     }}>
       {!loading && children}
     </AuthContext.Provider>

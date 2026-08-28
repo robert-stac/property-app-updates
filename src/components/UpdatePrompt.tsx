@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { DownloadCloud, X, RefreshCw } from 'lucide-react';
+import { useRegisterSW } from 'virtual:pwa-register/react';
 
 const UpdatePrompt: React.FC = () => {
   const [isUpdating, setIsUpdating] = useState(false);
